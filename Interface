@@ -1,0 +1,71 @@
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Heart, X, Star } from "lucide-react";
+
+const profiles = [
+  { id: 1, name: "Alex", age: 24, img: "https://source.unsplash.com/random/400x500?face1" },
+  { id: 2, name: "Taylor", age: 26, img: "https://source.unsplash.com/random/400x500?face2" },
+  { id: 3, name: "Jordan", age: 22, img: "https://source.unsplash.com/random/400x500?face3" },
+];
+
+export default function TinderClone() {
+  const [cards, setCards] = useState(profiles);
+
+  const removeCard = () => {
+    setCards((prev) => prev.slice(1));
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-between h-screen bg-gray-100 p-4">
+      {/* Header */}
+      <header className="text-xl font-bold p-4">🔥 Swipe App</header>
+
+      {/* Cards */}
+      <div className="relative flex-1 flex items-center justify-center w-full max-w-sm">
+        <AnimatePresence>
+          {cards.length > 0 ? (
+            cards.map((person, index) => (
+              <motion.div
+                key={person.id}
+                className="absolute w-full h-[28rem] rounded-2xl shadow-lg overflow-hidden"
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ opacity: 0, y: -200 }}
+                transition={{ duration: 0.3 }}
+                style={{ zIndex: cards.length - index }}
+              >
+                <img src={person.img} alt={person.name} className="w-full h-full object-cover" />
+                <div className="absolute bottom-0 p-4 bg-gradient-to-t from-black/70 to-transparent text-white">
+                  <h2 className="text-2xl font-bold">{person.name}, {person.age}</h2>
+                </div>
+              </motion.div>
+            ))
+          ) : (
+            <p className="text-gray-500">No more profiles</p>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Bottom Controls */}
+      <div className="flex justify-center gap-6 p-4">
+        <button
+          onClick={removeCard}
+          className="bg-white p-4 rounded-full shadow-xl text-red-500 hover:scale-110"
+        >
+          <X size={28} />
+        </button>
+        <button
+          className="bg-white p-4 rounded-full shadow-xl text-blue-500 hover:scale-110"
+        >
+          <Star size={28} />
+        </button>
+        <button
+          onClick={removeCard}
+          className="bg-white p-4 rounded-full shadow-xl text-green-500 hover:scale-110"
+        >
+          <Heart size={28} />
+        </button>
+      </div>
+    </div>
+  );
+}
