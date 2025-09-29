@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  backend:
+    build: ./BackEnd
+    container_name: jobapp-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/jobapp
+    volumes:
+      - ./BackEnd:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - db
+
+  frontend:
+    build: ./FrontEnd
+    container_name: jobapp-frontend
+    ports:
+      - "19006:19006" # Expo web
+      - "19000:19000" # Metro bundler
+      - "19001:19001" # React Native debugger
+      - "19002:19002" # Expo DevTools
+    volumes:
+      - ./FrontEnd:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
+    stdin_open: true
+    tty: true
+
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: jobapp-db
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: jobapp
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
