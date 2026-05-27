@@ -1,32 +1,18 @@
-// backend/routes/swipes.js
-const express = require("express");
-const pool = require("../db");
-const authMiddleware = require("../middleware/auth");
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+// BackEnd/routes/swipes.js
+import express from "express";
+
+import Swipe    from "../models/Swipe.js";
+import CV       from "../models/CV.js";
+import User     from "../models/User.js";
+import Business from "../models/Business.js";
+import authMiddleware        from "../middleware/auth.js";
+import { uploadCV, filePath } from "../middleware/upload.js";
+import { sendPush }           from "../utils/pushNotifications.js";
 
 const router = express.Router();
 
-// Multer setup for CV uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = "./uploads/cvs";
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${req.user.id}${ext}`);
-  },
-});
-const upload = multer({ storage });
-
-/**
- * POST /swipes
- * Body: { business_id, direction }
- * Handles left/right swipes without CV upload
- */
+// ─── POST /swipes ─────────────────────────────────────────────────────────────
+// Record a swipe (left or right) without a CV attachment.
 router.post("/", authMiddleware, async (req, res, next) => {
   try {
     const { business_id, direction } = req.body;
@@ -34,153 +20,217 @@ router.post("/", authMiddleware, async (req, res, next) => {
     if (!["left", "right"].includes(direction)) {
       return res.status(400).json({ error: "Invalid direction" });
     }
-
     if (req.user.role !== "user") {
       return res.status(403).json({ error: "Only users can swipe" });
     }
 
-    // Prevent duplicate swipe
-    const existing = await pool.query(
-      `SELECT * FROM swipes WHERE user_id = $1 AND business_id = $2`,
-      [req.user.id, business_id]
-    );
-    if (existing.rows.length > 0) {
+    // Check for duplicate swipe
+    const existing = await Swipe.findOne({ user_id: req.user.id, business_id });
+    if (existing) {
       return res.status(400).json({ error: "You already swiped on this business" });
     }
 
-    // Save swipe
-    const result = await pool.query(
-      `INSERT INTO swipes (user_id, business_id, direction)
-       VALUES ($1, $2, $3) RETURNING id, created_at, direction`,
-      [req.user.id, business_id, direction]
-    );
+    const swipe = await Swipe.create({
+      user_id:     req.user.id,
+      business_id,
+      direction,
+      status: direction === "right" ? "applied" : undefined,
+    });
 
-    // If swipe right, simulate CV sent (for businesses without uploaded CVs)
     if (direction === "right") {
-      const userRes = await pool.query(
-        `SELECT name, age, email, phone_number FROM users WHERE id = $1`,
-        [req.user.id]
-      );
+      const [userDoc, bizDoc] = await Promise.all([
+        User.findById(req.user.id).select("name email phone_number age"),
+        Business.findById(business_id).select("business_name email"),
+      ]);
 
-      const businessRes = await pool.query(
-        `SELECT business_name, email AS business_email FROM businesses WHERE id = $1`,
-        [business_id]
-      );
-
-      if (userRes.rows.length === 0 || businessRes.rows.length === 0) {
+      if (!userDoc || !bizDoc) {
         return res.status(404).json({ error: "User or Business not found" });
       }
 
-      const userInfo = userRes.rows[0];
-      const businessInfo = businessRes.rows[0];
-
       console.log(
-        `📩 CV Sent: ${userInfo.name} (${userInfo.email}) applied to ${businessInfo.business_name} (${businessInfo.business_email})`
+        `📩 CV Sent: ${userDoc.name} (${userDoc.email}) → ${bizDoc.business_name} (${bizDoc.email})`
       );
 
       return res.json({
-        message: "Swipe recorded and CV sent (simulated)",
-        swipe: result.rows[0],
-        sent_to: businessInfo.business_name,
+        message:  "Swipe recorded and CV sent (simulated)",
+        swipe:    swipe.toJSON(),
+        sent_to:  bizDoc.business_name,
       });
     }
 
-    res.json({
-      message: "Swipe recorded",
-      swipe: result.rows[0],
-    });
+    res.json({ message: "Swipe recorded", swipe: swipe.toJSON() });
+
   } catch (err) {
     next(err);
   }
 });
 
-/**
- * POST /swipes/right
- * Body: { businessId, cv }
- * Handles right swipes with uploaded CV
- */
-router.post("/right", authMiddleware, upload.single("cv"), async (req, res, next) => {
+// ─── POST /swipes/right ───────────────────────────────────────────────────────
+// Record a right-swipe WITH a CV file upload.
+router.post("/right", authMiddleware, uploadCV.single("cv"), async (req, res, next) => {
   try {
-    if (req.user.role !== "user") return res.status(403).json({ error: "Only users can swipe" });
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users can swipe" });
+    }
 
     const { businessId } = req.body;
     const cvFile = req.file;
 
-    if (!businessId || !cvFile) return res.status(400).json({ error: "Business ID and CV are required" });
+    if (!businessId || !cvFile) {
+      return res.status(400).json({ error: "Business ID and CV are required" });
+    }
 
-    // Prevent duplicate swipes
-    const existing = await pool.query(
-      `SELECT * FROM swipes WHERE user_id = $1 AND business_id = $2`,
-      [req.user.id, businessId]
-    );
-    if (existing.rows.length > 0) return res.status(400).json({ error: "You already swiped on this business" });
+    const existing = await Swipe.findOne({ user_id: req.user.id, business_id: businessId });
+    if (existing) {
+      return res.status(400).json({ error: "You already swiped on this business" });
+    }
 
-    // Insert swipe record
-    const result = await pool.query(
-      `INSERT INTO swipes (user_id, business_id, direction)
-       VALUES ($1, $2, 'right') RETURNING id, created_at`,
-      [req.user.id, businessId]
-    );
+    const swipe = await Swipe.create({
+      user_id:     req.user.id,
+      business_id: businessId,
+      direction:   "right",
+    });
 
-    // Store CV path
-    await pool.query(
-      `INSERT INTO cvs (user_id, business_id, path) VALUES ($1, $2, $3)`,
-      [req.user.id, businessId, cvFile.path]
-    );
+    const stored = filePath(cvFile);  // S3 URL or local disk path
 
-    console.log(`📩 CV uploaded and swipe recorded: User ${req.user.id} -> Business ${businessId}`);
+    await CV.create({
+      user_id:     req.user.id,
+      business_id: businessId,
+      path:        stored,
+    });
 
-    res.json({ message: "Swipe recorded and CV uploaded", swipe: result.rows[0], cvPath: cvFile.path });
+    console.log(`📩 CV uploaded: User ${req.user.id} → Business ${businessId}`);
+    res.json({
+      message: "Swipe recorded and CV uploaded",
+      swipe:   swipe.toJSON(),
+      cvPath:  stored,
+    });
+
   } catch (err) {
     next(err);
   }
 });
 
-/**
- * GET /swipes/user
- * Returns businesses a user swiped right on
- */
+// ─── GET /swipes/user ─────────────────────────────────────────────────────────
+// Returns all right-swiped businesses for the logged-in user.
 router.get("/user", authMiddleware, async (req, res, next) => {
   try {
-    if (req.user.role !== "user") return res.status(403).json({ error: "Only users can view this" });
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users can view this" });
+    }
 
-    const result = await pool.query(
-      `SELECT b.id, b.business_name, b.owner_name, b.street, b.email, s.created_at
-       FROM swipes s
-       JOIN businesses b ON s.business_id = b.id
-       WHERE s.user_id = $1 AND s.direction = 'right'
-       ORDER BY s.created_at DESC`,
-      [req.user.id]
-    );
+    const swipes = await Swipe
+      .find({ user_id: req.user.id, direction: "right" })
+      .populate("business_id", "business_name owner_name street email")
+      .sort({ createdAt: -1 });
 
-    res.json(result.rows);
+    const result = swipes.map(s => {
+      const b = s.business_id;
+      return {
+        id:            b._id.toString(),
+        business_name: b.business_name,
+        owner_name:    b.owner_name,
+        street:        b.street,
+        email:         b.email,
+        created_at:    s.createdAt,
+      };
+    });
+
+    res.json(result);
   } catch (err) {
     next(err);
   }
 });
 
-/**
- * GET /swipes/business
- * Returns users who swiped right on a business, with CV paths
- */
+// ─── GET /swipes/business ─────────────────────────────────────────────────────
+// Returns all users who right-swiped on this business, with their CV if uploaded.
 router.get("/business", authMiddleware, async (req, res, next) => {
   try {
-    if (req.user.role !== "business") return res.status(403).json({ error: "Only businesses can view this" });
+    if (req.user.role !== "business") {
+      return res.status(403).json({ error: "Only businesses can view this" });
+    }
 
-    const result = await pool.query(
-      `SELECT u.id, u.name, u.age, u.email, u.phone_number, s.created_at, c.path AS cv_path
-       FROM swipes s
-       JOIN users u ON s.user_id = u.id
-       LEFT JOIN cvs c ON c.user_id = u.id AND c.business_id = s.business_id
-       WHERE s.business_id = $1 AND s.direction = 'right'
-       ORDER BY s.created_at DESC`,
-      [req.user.id]
-    );
+    const swipes = await Swipe
+      .find({ business_id: req.user.id, direction: "right" })
+      .populate("user_id", "name age email phone_number")
+      .sort({ createdAt: -1 });
 
-    res.json(result.rows);
+    // Fetch CVs for all matched users in one query
+    const userIds = swipes.map(s => s.user_id._id);
+    const cvs     = await CV.find({ business_id: req.user.id, user_id: { $in: userIds } });
+    const cvMap   = Object.fromEntries(cvs.map(c => [c.user_id.toString(), c.path]));
+
+    const result = swipes.map(s => {
+      const u = s.user_id;
+      return {
+        id:           u._id.toString(),
+        name:         u.name,
+        age:          u.age,
+        email:        u.email,
+        phone_number: u.phone_number,
+        created_at:   s.createdAt,
+        cv_path:      cvMap[u._id.toString()] ?? null,
+      };
+    });
+
+    res.json(result);
   } catch (err) {
     next(err);
   }
 });
 
-module.exports = router;
+// ─── PATCH /swipes/:id/status ─────────────────────────────────────────────────
+// Business updates the application status of a right-swipe.
+const VALID_STATUSES = ["viewed", "shortlisted", "rejected", "hired"];
+const STATUS_MESSAGES = {
+  viewed:      "viewed your application",
+  shortlisted: "has shortlisted you! 🎉",
+  rejected:    "has reviewed your application",
+  hired:       "wants to hire you! 🎊",
+};
+
+router.patch("/:id/status", authMiddleware, async (req, res, next) => {
+  try {
+    if (req.user.role !== "business") {
+      return res.status(403).json({ error: "Only businesses can update application status" });
+    }
+
+    const { status } = req.body;
+    if (!VALID_STATUSES.includes(status)) {
+      return res.status(400).json({ error: `Status must be one of: ${VALID_STATUSES.join(", ")}` });
+    }
+
+    const swipe = await Swipe.findById(req.params.id);
+    if (!swipe) return res.status(404).json({ error: "Swipe not found" });
+    if (swipe.business_id.toString() !== req.user.id) {
+      return res.status(403).json({ error: "Not authorised to update this application" });
+    }
+    if (swipe.direction !== "right") {
+      return res.status(400).json({ error: "Can only update status of right-swipes" });
+    }
+
+    swipe.status = status;
+    await swipe.save();
+
+    // Push notification to the applicant
+    const [user, biz] = await Promise.all([
+      User.findById(swipe.user_id).select("expoPushToken name"),
+      Business.findById(req.user.id).select("business_name"),
+    ]);
+
+    await sendPush(
+      user?.expoPushToken,
+      `${biz?.business_name || "A business"} ${STATUS_MESSAGES[status]}`,
+      status === "hired"
+        ? "Congratulations! Check your messages."
+        : "Log in to view your application status.",
+      { type: "status_update", swipeId: swipe._id.toString(), status }
+    );
+
+    res.json(swipe.toJSON());
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;

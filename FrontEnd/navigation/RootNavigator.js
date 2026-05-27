@@ -2,9 +2,10 @@
 import React, { useContext } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { NavigationContainer } from "@react-navigation/native";
-import LoginScreen from "../screens/LoginScreen";
-import RegisterScreen from "../screens/RegisterScreen";
-import RoleSelection from "../screens/RoleSelection";
+import { ActivityIndicator, View } from "react-native";
+import LoginScreen from "../screens/auth/LoginScreen";
+import RegisterScreen from "../screens/auth/RegisterScreen";
+import RoleSelection from "../screens/auth/RoleSelection";
 import UserApp from "../screens/UserApp";
 import BusinessApp from "../screens/BusinessApp";
 import { AuthContext } from "../context/AuthContext";
@@ -12,7 +13,15 @@ import { AuthContext } from "../context/AuthContext";
 const Stack = createNativeStackNavigator();
 
 export default function RootNavigator() {
-  const { token, role } = useContext(AuthContext);
+  const { token, role, loading } = useContext(AuthContext);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer>

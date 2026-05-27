@@ -1,5 +1,5 @@
 // backend/middleware/auth.js
-const jwt = require("jsonwebtoken");
+import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -12,11 +12,11 @@ function authMiddleware(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; // { id, role }
+    req.user = decoded;
     next();
   } catch (err) {
     return res.status(403).json({ error: "Invalid or expired token" });
   }
 }
 
-module.exports = authMiddleware;
+export default authMiddleware;
