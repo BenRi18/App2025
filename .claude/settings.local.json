@@ -6,7 +6,9 @@
       "Bash(Start-Sleep -Seconds 15)",
       "Bash(Get-Content \"C:\\\\Users\\\\Ben\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--PROJECTS-Timesheet-App2025\\\\6e2d60d3-84fe-4f70-be36-0f74052f2219\\\\tasks\\\\be6l2mzbo.output\" -Tail 30)",
       "Bash(node -e \"require\\('expo-location'\\); require\\('expo-document-picker'\\); require\\('react-native-gesture-handler'\\); console.log\\('All 3 packages resolve OK'\\)\")",
-      "Bash(grep -E \"^expo$|react-native-deck|^expo-modules\")"
+      "Bash(grep -E \"^expo$|react-native-deck|^expo-modules\")",
+      "Bash(node -e \"const p=require\\('./FrontEnd/package.json'\\); console.log\\(Object.keys\\(p.dependencies\\).sort\\(\\).join\\('\\\\n'\\)\\)\")",
+      "Bash(grep -v \"^node_modules$\")"
     ]
   }
 }

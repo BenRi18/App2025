@@ -102,7 +102,7 @@ export function setupSocket(io) {
 
     // ── Typing indicator ───────────────────────────────────────────────────
     socket.on("typing", ({ matchId, isTyping }) => {
-      socket.to(`match:${matchId}`).emit("typing", { userId: id, isTyping });
+      socket.to(`match:${matchId}`).emit("typing", { userId: id, senderRole: role, isTyping });
     });
 
     // ── Mark messages as read ──────────────────────────────────────────────

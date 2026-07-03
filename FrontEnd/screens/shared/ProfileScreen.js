@@ -1,43 +1,40 @@
 // FrontEnd/screens/shared/ProfileScreen.js
 // Shared profile screen for both "user" and "business" roles.
-// Fetches /auth/me, displays role-appropriate fields, and wires the logout button.
-import React, { useEffect, useState, useContext } from "react";
+// Fetches /auth/me, displays role-appropriate fields.
+import React, { useEffect, useContext } from "react";
 import {
   View, Text, StyleSheet, ActivityIndicator,
-  TouchableOpacity, ScrollView, Alert,
+  TouchableOpacity, ScrollView, Alert, Image,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons }   from "@expo/vector-icons";
 import { AuthContext } from "../../context/AuthContext";
+import { api, API_URL } from "../../services/api";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
-const API_URL = "http://localhost:3000";
-
-export default function ProfileScreen() {
-  const { token, role, logout } = useContext(AuthContext);
-  const [profile, setProfile]   = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
+export default function ProfileScreen({ navigation }) {
+  const { role, user, setUser, logout, loading: authLoading } = useContext(AuthContext);
+  const [pageLoading, setPageLoading] = React.useState(!user);
+  const [error,       setError]       = React.useState(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    if (user) return;   // already cached
+    api.get("/auth/me")
       .then(res => {
         if (!res.ok) throw new Error("Failed to load profile");
         return res.json();
       })
-      .then(data => { setProfile(data); setLoading(false); })
-      .catch(err  => { setError(err.message); setLoading(false); });
-  }, [token]);
+      .then(data => { setUser(data); setPageLoading(false); })
+      .catch(err  => { setError(err.message); setPageLoading(false); });
+  }, []);
 
   const handleLogout = () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
+      { text: "Cancel",  style: "cancel" },
       { text: "Log Out", style: "destructive", onPress: logout },
     ]);
   };
 
-  if (loading) {
+  if (authLoading || pageLoading) {
     return <ActivityIndicator size="large" color={COLORS.primary} style={styles.center} />;
   }
   if (error) {
@@ -50,50 +47,94 @@ export default function ProfileScreen() {
   }
 
   const isUser      = role === "user";
-  const displayName = isUser ? profile?.name : profile?.business_name;
+  const displayName = isUser ? user?.name : user?.business_name;
   const initials    = displayName
     ? displayName.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
     : "?";
+  const avatarUrl   = user?.avatar_path
+    ? `${API_URL}/${user.avatar_path.replace(/^\/+/, "")}`
+    : null;
 
   const fields = isUser
     ? [
-        { icon: "person-outline",   label: "Full Name", value: profile?.name },
-        { icon: "mail-outline",     label: "Email",     value: profile?.email },
-        { icon: "calendar-outline", label: "Age",       value: profile?.age?.toString() },
-        { icon: "call-outline",     label: "Phone",     value: profile?.phone_number },
+        { icon: "person-outline",       label: "Full Name",  value: user?.name },
+        { icon: "mail-outline",         label: "Email",      value: user?.email },
+        { icon: "calendar-outline",     label: "Age",        value: user?.age?.toString() },
+        { icon: "call-outline",         label: "Phone",      value: user?.phone_number },
+        { icon: "location-outline",     label: "Location",   value: user?.location },
+        { icon: "briefcase-outline",    label: "Work Type",  value: user?.work_type },
+        { icon: "trending-up-outline",  label: "Experience", value: user?.experience_level },
       ]
     : [
-        { icon: "business-outline", label: "Business",  value: profile?.business_name },
-        { icon: "person-outline",   label: "Owner",     value: profile?.owner_name },
-        { icon: "mail-outline",     label: "Email",     value: profile?.email },
-        { icon: "location-outline", label: "Address",   value: profile?.street },
+        { icon: "business-outline",     label: "Business",   value: user?.business_name },
+        { icon: "person-outline",       label: "Owner",      value: user?.owner_name },
+        { icon: "mail-outline",         label: "Email",      value: user?.email },
+        { icon: "location-outline",     label: "Address",    value: [user?.street, user?.city, user?.postcode].filter(Boolean).join(", ") },
+        { icon: "document-text-outline",label: "About",      value: user?.description },
       ];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Avatar */}
-      <View style={styles.avatarCircle}>
-        <Text style={styles.avatarText}>{initials}</Text>
-      </View>
-      <Text style={styles.displayName}>{displayName}</Text>
+      <TouchableOpacity
+        style={styles.avatarWrap}
+        onPress={() => navigation.navigate("EditProfile")}
+        activeOpacity={0.85}
+      >
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+        ) : (
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>{initials}</Text>
+          </View>
+        )}
+        <View style={styles.avatarEdit}>
+          <Ionicons name="camera" size={14} color="#FFF" />
+        </View>
+      </TouchableOpacity>
+
+      <Text style={styles.displayName}>{displayName ?? "—"}</Text>
       <View style={styles.rolePill}>
         <Text style={styles.roleText}>{isUser ? "Job Seeker" : "Business"}</Text>
       </View>
 
       {/* Info card */}
       <View style={styles.card}>
-        {fields.map(({ icon, label, value }, idx) => (
+        {fields.filter(f => f.value).map(({ icon, label, value }, idx, arr) => (
           <View
             key={label}
-            style={[styles.row, idx < fields.length - 1 && styles.rowBorder]}
+            style={[styles.row, idx < arr.length - 1 && styles.rowBorder]}
           >
             <View style={styles.rowLeft}>
               <Ionicons name={icon} size={16} color={COLORS.textSecondary} />
               <Text style={styles.rowLabel}>{label}</Text>
             </View>
-            <Text style={styles.rowValue}>{value || "—"}</Text>
+            <Text style={styles.rowValue} numberOfLines={2}>{value}</Text>
           </View>
         ))}
+      </View>
+
+      {/* Action buttons */}
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => navigation.navigate("EditProfile")}
+        >
+          <Ionicons name="create-outline" size={18} color={COLORS.primary} />
+          <Text style={styles.actionBtnText}>Edit Profile</Text>
+          <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} style={{ marginLeft: "auto" }} />
+        </TouchableOpacity>
+
+        <View style={styles.actionDivider} />
+
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => navigation.navigate("ChangePassword")}
+        >
+          <Ionicons name="lock-closed-outline" size={18} color={COLORS.primary} />
+          <Text style={styles.actionBtnText}>Change Password</Text>
+          <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} style={{ marginLeft: "auto" }} />
+        </TouchableOpacity>
       </View>
 
       {/* Logout */}
@@ -112,6 +153,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   content:   { padding: SPACING.lg, alignItems: "center", paddingBottom: 40 },
 
+  avatarWrap: { marginBottom: SPACING.md, position: "relative" },
+  avatarImage: {
+    width:        88,
+    height:       88,
+    borderRadius: 44,
+    borderWidth:  3,
+    borderColor:  COLORS.primary + "30",
+  },
   avatarCircle: {
     width:           88,
     height:          88,
@@ -119,12 +168,24 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     alignItems:      "center",
     justifyContent:  "center",
-    marginBottom:    SPACING.md,
     ...SHADOWS.md,
   },
-  avatarText:  { color: "#FFF", fontSize: 32, fontWeight: "800" },
-  displayName: { fontSize: 22, fontWeight: "800", color: COLORS.textPrimary, marginBottom: 6 },
+  avatarText: { color: "#FFF", fontSize: 32, fontWeight: "800" },
+  avatarEdit: {
+    position:        "absolute",
+    bottom:          0,
+    right:           0,
+    width:           28,
+    height:          28,
+    borderRadius:    14,
+    backgroundColor: COLORS.primary,
+    alignItems:      "center",
+    justifyContent:  "center",
+    borderWidth:     2,
+    borderColor:     COLORS.background,
+  },
 
+  displayName: { fontSize: 22, fontWeight: "800", color: COLORS.textPrimary, marginBottom: 6 },
   rolePill: {
     backgroundColor:   COLORS.primaryLight,
     borderRadius:      RADIUS.full,
@@ -146,7 +207,7 @@ const styles = StyleSheet.create({
     flexDirection:     "row",
     justifyContent:    "space-between",
     alignItems:        "center",
-    paddingVertical:   14,
+    paddingVertical:   13,
     paddingHorizontal: SPACING.md,
   },
   rowBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
@@ -159,6 +220,24 @@ const styles = StyleSheet.create({
     maxWidth:   "55%",
     textAlign:  "right",
   },
+
+  actions: {
+    width:           "100%",
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.md,
+    marginBottom:    SPACING.lg,
+    overflow:        "hidden",
+    ...SHADOWS.sm,
+  },
+  actionBtn: {
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               12,
+    paddingVertical:   15,
+    paddingHorizontal: SPACING.md,
+  },
+  actionBtnText: { fontSize: 15, color: COLORS.textPrimary, fontWeight: "500", flex: 1 },
+  actionDivider: { height: 1, backgroundColor: COLORS.border, marginLeft: SPACING.md + 18 + 12 },
 
   logoutButton: {
     flexDirection:   "row",

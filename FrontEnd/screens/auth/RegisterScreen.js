@@ -642,8 +642,14 @@ export default function RegisterScreen({ route, navigation }) {
       const data = await res.json();
 
       if (res.ok) {
-        await uploadAvatar(data.token);
-        login(data.token, data.role);
+        if (data.requiresVerification) {
+          // Email verification required — go to VerifyEmail screen
+          navigation.navigate("VerifyEmail", { email: form.email?.trim().toLowerCase(), role });
+        } else {
+          // Auto-verified (dev mode) — upload avatar then log in
+          await uploadAvatar(data.token);
+          login(data.token, data.refreshToken, data.role);
+        }
       } else {
         setMessage(data.error ?? data.errors?.[0]?.msg ?? "Registration failed");
       }

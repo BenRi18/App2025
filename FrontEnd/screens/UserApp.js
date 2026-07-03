@@ -1,13 +1,17 @@
-// FrontEnd/screens/UserApp.js — bottom-tab shell for the job-seeker experience
+// FrontEnd/screens/UserApp.js — job-seeker shell: a stack wrapping the bottom
+// tabs, so full-screen flows (like the personality quiz) can sit on top.
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import QuestionnaireScreen from "./user/QuestionnaireScreen";
 import { Ionicons } from "@expo/vector-icons";
 import SwipeScreen        from "./user/SwipeScreen";
 import ApplicationsScreen from "./user/ApplicationsScreen";
 import ProfileScreen      from "./shared/ProfileScreen";
 import { COLORS } from "../theme";
 
-const Tab = createBottomTabNavigator();
+const Tab   = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 
 const TAB_ICONS = {
   "Find Jobs":        { focused: "swap-horizontal",    blur: "swap-horizontal-outline" },
@@ -15,7 +19,7 @@ const TAB_ICONS = {
   "My Profile":       { focused: "person",             blur: "person-outline" },
 };
 
-export default function UserApp() {
+function UserTabs() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -47,5 +51,18 @@ export default function UserApp() {
       <Tab.Screen name="My Applications" component={ApplicationsScreen} />
       <Tab.Screen name="My Profile"      component={ProfileScreen} />
     </Tab.Navigator>
+  );
+}
+
+export default function UserApp() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="UserTabs" component={UserTabs} />
+      <Stack.Screen
+        name="Questionnaire"
+        component={QuestionnaireScreen}
+        options={{ presentation: "modal" }}
+      />
+    </Stack.Navigator>
   );
 }

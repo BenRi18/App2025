@@ -3,6 +3,7 @@ import express from "express";
 
 import Swipe    from "../models/Swipe.js";
 import CV       from "../models/CV.js";
+import Match    from "../models/Match.js";
 import User     from "../models/User.js";
 import Business from "../models/Business.js";
 import authMiddleware        from "../middleware/auth.js";
@@ -113,6 +114,7 @@ router.post("/right", authMiddleware, uploadCV.single("cv"), async (req, res, ne
 
 // ─── GET /swipes/user ─────────────────────────────────────────────────────────
 // Returns all right-swiped businesses for the logged-in user.
+// Includes application status, swipe_id, and match_id (if matched).
 router.get("/user", authMiddleware, async (req, res, next) => {
   try {
     if (req.user.role !== "user") {
@@ -124,14 +126,28 @@ router.get("/user", authMiddleware, async (req, res, next) => {
       .populate("business_id", "business_name owner_name street email")
       .sort({ createdAt: -1 });
 
+    // Fetch CVs and Matches in one pass each
+    const businessIds = swipes.map(s => s.business_id._id);
+    const [cvs, matches] = await Promise.all([
+      CV.find({ user_id: req.user.id, business_id: { $in: businessIds } }),
+      Match.find({ user_id: req.user.id, business_id: { $in: businessIds } }),
+    ]);
+
+    const cvMap    = Object.fromEntries(cvs.map(c => [c.business_id.toString(), c.path]));
+    const matchMap = Object.fromEntries(matches.map(m => [m.business_id.toString(), m._id.toString()]));
+
     const result = swipes.map(s => {
       const b = s.business_id;
       return {
-        id:            b._id.toString(),
+        id:            s._id.toString(),       // swipe id (used for status updates)
+        swipe_id:      s._id.toString(),
         business_name: b.business_name,
         owner_name:    b.owner_name,
         street:        b.street,
         email:         b.email,
+        status:        s.status ?? "applied",
+        cv_path:       cvMap[b._id.toString()]    ?? null,
+        match_id:      matchMap[b._id.toString()] ?? null,
         created_at:    s.createdAt,
       };
     });

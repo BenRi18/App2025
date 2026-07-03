@@ -7,9 +7,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/AuthContext";
+import { API_URL }     from "../../services/api";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
-
-const API_URL = "http://localhost:3000";
 
 export default function LoginScreen({ route, navigation }) {
   const { role }                        = route.params || {};
@@ -31,13 +30,17 @@ export default function LoginScreen({ route, navigation }) {
       const res  = await fetch(`${API_URL}/auth/login`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ email: email.trim(), password, role }),
+        body:    JSON.stringify({ email: email.trim().toLowerCase(), password, role }),
       });
       const data = await res.json();
+
       if (res.ok) {
-        login(data.token, data.role);
+        // data.token = access token (15 min), data.refreshToken = refresh token (30 days)
+        await login(data.token, data.refreshToken, data.role);
+      } else if (res.status === 403 && data.requiresVerification) {
+        setMessage("Please verify your email before logging in. Check your inbox.");
       } else {
-        setMessage(data.error ?? data.errors?.[0]?.msg ?? "Login failed");
+        setMessage(data.error ?? "Login failed");
       }
     } catch {
       setMessage("Network error — is the server running?");
@@ -69,6 +72,7 @@ export default function LoginScreen({ route, navigation }) {
             </Text>
           </Text>
 
+          {/* Email */}
           <Text style={styles.label}>Email</Text>
           <TextInput
             style={styles.input}
@@ -81,6 +85,7 @@ export default function LoginScreen({ route, navigation }) {
             autoCorrect={false}
           />
 
+          {/* Password */}
           <Text style={styles.label}>Password</Text>
           <View style={styles.passwordWrap}>
             <TextInput
@@ -91,18 +96,23 @@ export default function LoginScreen({ route, navigation }) {
               value={password}
               onChangeText={setPassword}
             />
-            <TouchableOpacity
-              style={styles.eyeBtn}
-              onPress={() => setShowPassword(v => !v)}
-            >
+            <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(v => !v)}>
               <Ionicons
                 name={showPassword ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color={COLORS.textSecondary}
+                size={20} color={COLORS.textSecondary}
               />
             </TouchableOpacity>
           </View>
 
+          {/* Forgot password */}
+          <TouchableOpacity
+            style={styles.forgotWrap}
+            onPress={() => navigation.navigate("ForgotPassword", { role })}
+          >
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
+
+          {/* Error message */}
           {message ? (
             <View style={styles.errorBox}>
               <Ionicons name="alert-circle-outline" size={15} color={COLORS.danger} />
@@ -110,6 +120,7 @@ export default function LoginScreen({ route, navigation }) {
             </View>
           ) : null}
 
+          {/* Submit */}
           <TouchableOpacity
             style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
             onPress={handleLogin}
@@ -157,15 +168,14 @@ const styles = StyleSheet.create({
     ...SHADOWS.sm,
   },
 
-  passwordWrap:  { position: "relative", marginBottom: SPACING.md },
+  passwordWrap:  { position: "relative", marginBottom: 4 },
   passwordInput: { marginBottom: 0, paddingRight: 48 },
   eyeBtn: {
-    position:       "absolute",
-    right:          14,
-    top:            0,
-    bottom:         0,
-    justifyContent: "center",
+    position: "absolute", right: 14, top: 0, bottom: 0, justifyContent: "center",
   },
+
+  forgotWrap: { alignSelf: "flex-end", marginBottom: SPACING.md },
+  forgotText: { color: COLORS.primary, fontSize: 13, fontWeight: "600" },
 
   errorBox: {
     flexDirection:   "row",

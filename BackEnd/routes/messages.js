@@ -27,12 +27,16 @@ router.get("/:matchId", authMiddleware, async (req, res, next) => {
     const msgFilter = { match_id: matchId };
     if (before) msgFilter._id = { $lt: before };  // messages older than cursor
 
-    const messages = await Message
+    // Fetch one extra to detect if there are more pages
+    const raw = await Message
       .find(msgFilter)
-      .sort({ createdAt: -1 })   // newest first (client reverses for display)
-      .limit(limit);
+      .sort({ createdAt: -1 })   // newest first for cursor pagination
+      .limit(limit + 1);
 
-    res.json(messages.map(m => m.toJSON()));
+    const hasMore  = raw.length > limit;
+    const messages = raw.slice(0, limit).reverse();  // oldest-first for display
+
+    res.json({ messages: messages.map(m => m.toJSON()), hasMore });
   } catch (err) {
     next(err);
   }

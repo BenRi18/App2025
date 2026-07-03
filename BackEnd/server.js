@@ -15,6 +15,7 @@ import businessesRouter   from "./routes/businesses.js";
 import jobsRouter         from "./routes/jobs.js";
 import matchesRouter      from "./routes/matches.js";
 import messagesRouter     from "./routes/messages.js";
+import questionnaireRouter from "./routes/questionnaire.js";
 import errorHandler       from "./middleware/errorHandler.js";
 
 dotenv.config();
@@ -47,6 +48,7 @@ app.use("/swipes",     swipesRouter);
 app.use("/businesses", businessesRouter);
 app.use("/jobs",       jobsRouter);
 app.use("/matches",    matchesRouter);
+app.use("/questionnaire", questionnaireRouter);
 app.use("/messages",   messagesRouter);
 
 // ─── Global error handler — must be last ──────────────────────────────────────

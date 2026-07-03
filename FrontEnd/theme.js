@@ -14,6 +14,10 @@ export const COLORS = {
   successLight:  '#DCFCE7',
   danger:        '#EF4444',
   dangerLight:   '#FEE2E2',
+  warning:       '#F59E0B',
+  warningLight:  '#FEF3C7',
+  info:          '#0EA5E9',
+  infoLight:     '#E0F2FE',
 };
 
 export const SPACING = {

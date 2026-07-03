@@ -14,14 +14,31 @@ import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 const API_URL = "http://localhost:3000";
 
-export default function SwipeScreen() {
+export default function SwipeScreen({ navigation }) {
   const [businesses, setBusinesses]   = useState([]);
   const [loading, setLoading]         = useState(true);
   const [location, setLocation]       = useState({ latitude: null, longitude: null });
   const [cvUri, setCvUri]             = useState(null);
+  const [showQuizBanner, setShowQuizBanner] = useState(false);
   const { token }                     = useContext(AuthContext);
   const swiperRef                     = useRef(null);
   const swipedIds                     = useRef(new Set());
+
+  // ── 0. Show quiz banner if the user hasn't done the personality quiz ──────
+  useEffect(() => {
+    const unsubscribe = navigation?.addListener?.("focus", checkQuiz) ?? (() => {});
+    checkQuiz();
+    return unsubscribe;
+
+    function checkQuiz() {
+      fetch(`${API_URL}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(res => res.json())
+        .then(me => setShowQuizBanner(!me?.traits))
+        .catch(() => {});
+    }
+  }, [token, navigation]);
 
   // ── 1. Request location permission and get initial position ──────────────
   useEffect(() => {
@@ -123,6 +140,24 @@ export default function SwipeScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Personality quiz banner */}
+      {showQuizBanner && (
+        <TouchableOpacity
+          style={styles.quizBanner}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate("Questionnaire")}
+        >
+          <Ionicons name="sparkles" size={20} color={COLORS.primary} />
+          <View style={styles.quizBannerTextWrap}>
+            <Text style={styles.quizBannerTitle}>Get better matches</Text>
+            <Text style={styles.quizBannerSub}>
+              Take the 2-minute job personality quiz
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={COLORS.primary} />
+        </TouchableOpacity>
+      )}
+
       {/* CV upload button */}
       <TouchableOpacity
         style={[styles.cvButton, cvUri && styles.cvButtonActive]}
@@ -191,6 +226,29 @@ export default function SwipeScreen() {
 }
 
 const styles = StyleSheet.create({
+  quizBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  quizBannerTextWrap: { flex: 1 },
+  quizBannerTitle: {
+    color: COLORS.primaryDark,
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  quizBannerSub: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    marginTop: 1,
+  },
   center:    { flex: 1 },
   container: { flex: 1, backgroundColor: COLORS.background, paddingTop: SPACING.md },
 

@@ -22,6 +22,10 @@ const userSchema = new mongoose.Schema(
     travel_distance:     { type: String, enum: ["5km", "10km", "25km", "any"] },
     industry_preference: { type: String, maxlength: 200 },
 
+    // ── Lifestyle questionnaire (trait-based matching) ────────────────────────
+    questionnaire_answers: { type: Object },   // { free_time: "a", sports: "c", ... }
+    traits:                { type: Object },   // computed vector { energy: 0.8, ... }
+
     avatar_path:    { type: String },
     expoPushToken:  { type: String },           // Expo push notification token
 

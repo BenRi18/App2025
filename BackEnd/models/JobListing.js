@@ -17,6 +17,9 @@ const jobListingSchema = new mongoose.Schema(
     salary_range: { type: String, maxlength: 100 },
     description:  { type: String, maxlength: 1000 },   // stored as "description", aliased below
 
+    // Trait-matching archetype, e.g. 'bar_service' — see config/questionnaire.js
+    archetype: { type: String },
+
     is_active: { type: Boolean, default: true },
   },
   { timestamps: true }
