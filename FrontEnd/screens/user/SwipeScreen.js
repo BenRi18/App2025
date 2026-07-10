@@ -8,14 +8,14 @@ import Swiper from "react-native-deck-swiper";
 import * as Location from "expo-location";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
-import BusinessCard from "../../components/BusinessCard";
+import JobCard from "../../components/JobCard";
 import { AuthContext } from "../../context/AuthContext";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 const API_URL = "http://localhost:3000";
 
 export default function SwipeScreen({ navigation }) {
-  const [businesses, setBusinesses]   = useState([]);
+  const [feed, setFeed]               = useState([]);
   const [loading, setLoading]         = useState(true);
   const [location, setLocation]       = useState({ latitude: null, longitude: null });
   const [cvUri, setCvUri]             = useState(null);
@@ -54,19 +54,19 @@ export default function SwipeScreen({ navigation }) {
     })();
   }, []);
 
-  // ── 2. Fetch nearby businesses whenever location updates ──────────────────
+  // ── 2. Fetch the job feed whenever location updates ───────────────────────
   useEffect(() => {
     if (!location.latitude || !location.longitude) return;
     fetch(
-      `${API_URL}/businesses/nearby?lat=${location.latitude}&lng=${location.longitude}`,
+      `${API_URL}/jobs/feed?lat=${location.latitude}&lng=${location.longitude}`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
       .then(res => res.json())
       .then(data => {
         const fresh = Array.isArray(data)
-          ? data.filter(b => !swipedIds.current.has(b.id))
+          ? data.filter(item => !swipedIds.current.has(item.job?.id))
           : [];
-        setBusinesses(fresh);
+        setFeed(fresh);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -90,11 +90,11 @@ export default function SwipeScreen({ navigation }) {
     }
   };
 
-  // ── 5. Handle card swipe ──────────────────────────────────────────────────
+  // ── 5. Handle card swipe (per job) ────────────────────────────────────────
   const handleSwipe = async (cardIndex, direction) => {
-    const business = businesses[cardIndex];
-    if (!business) return;
-    swipedIds.current.add(business.id);
+    const item = feed[cardIndex];
+    if (!item?.job || !item?.business) return;
+    swipedIds.current.add(item.job.id);
 
     if (direction === "right") {
       if (!cvUri) {
@@ -102,7 +102,8 @@ export default function SwipeScreen({ navigation }) {
         return;
       }
       const formData = new FormData();
-      formData.append("businessId", business.id);
+      formData.append("businessId", item.business.id);
+      formData.append("jobId", item.job.id);
       formData.append("cv", {
         uri: Platform.OS === "ios" ? cvUri.replace("file://", "") : cvUri,
         type: "application/pdf",
@@ -117,7 +118,10 @@ export default function SwipeScreen({ navigation }) {
           },
           body: formData,
         });
-        Alert.alert("Applied! ✅", `Your CV was sent to ${business.business_name}.`);
+        Alert.alert(
+          "Applied! ✅",
+          `Your CV was sent to ${item.business.business_name} for "${item.job.job_title}".`
+        );
       } catch {
         Alert.alert("Error", "Failed to send CV. Please try again.");
       }
@@ -129,7 +133,11 @@ export default function SwipeScreen({ navigation }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ business_id: business.id, direction: "left" }),
+        body: JSON.stringify({
+          business_id: item.business.id,
+          job_id:      item.job.id,
+          direction:   "left",
+        }),
       }).catch(() => {});
     }
   };
@@ -174,17 +182,17 @@ export default function SwipeScreen({ navigation }) {
       </TouchableOpacity>
 
       {/* Cards or empty state */}
-      {businesses.length === 0 ? (
+      {feed.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="search-outline" size={64} color={COLORS.textMuted} />
-          <Text style={styles.emptyTitle}>No Businesses Nearby</Text>
+          <Text style={styles.emptyTitle}>No Jobs Nearby</Text>
           <Text style={styles.emptySub}>Check back later for new listings.</Text>
         </View>
       ) : (
         <Swiper
           ref={swiperRef}
-          cards={businesses}
-          renderCard={card => <BusinessCard business={card} />}
+          cards={feed}
+          renderCard={card => <JobCard item={card} />}
           onSwipedLeft={i => handleSwipe(i, "left")}
           onSwipedRight={i => handleSwipe(i, "right")}
           cardIndex={0}

@@ -1,11 +1,12 @@
 // FrontEnd/screens/business/ApplicantsScreen.js
 // Shows pending applicants (users who swiped right on this business).
 // Business can like/pass each applicant. A mutual like creates a match and opens chat.
-import React, { useEffect, useState, useContext, useCallback } from "react";
+import React, { useState, useContext, useCallback, useMemo } from "react";
 import {
-  View, FlatList, Text, StyleSheet, TouchableOpacity,
+  View, SectionList, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert, Linking,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/AuthContext";
 import { api, API_URL } from "../../services/api";
@@ -49,18 +50,45 @@ export default function ApplicantsScreen({ navigation }) {
     }
   }, []);
 
-  useEffect(() => { fetchApplicants(); }, [fetchApplicants]);
+  useFocusEffect(useCallback(() => { fetchApplicants(); }, [fetchApplicants]));
 
-  const handleDecision = async (userId, decision, applicantName) => {
-    setActing(String(userId));
+  // Group applicants by the job they applied for. Legacy applications with
+  // no job land in a "General applications" section at the end.
+  const sections = useMemo(() => {
+    const byJob = new Map();
+    for (const a of applicants) {
+      const key = a.job?.id ?? "__general__";
+      if (!byJob.has(key)) {
+        byJob.set(key, {
+          key,
+          title: a.job?.title ?? "General applications",
+          jobType: a.job?.type ?? null,
+          data: [],
+        });
+      }
+      byJob.get(key).data.push(a);
+    }
+    const list = [...byJob.values()];
+    // Keep "General applications" last
+    list.sort((x, y) => (x.key === "__general__") - (y.key === "__general__"));
+    return list;
+  }, [applicants]);
+
+  const handleDecision = async (userId, decision, applicantName, jobId, jobTitle) => {
+    setActing(`${userId}:${jobId ?? "general"}`);
     try {
-      const res  = await api.post(`/matches/applicants/${userId}/decision`, { decision });
+      const res  = await api.post(`/matches/applicants/${userId}/decision`, {
+        decision,
+        ...(jobId ? { jobId } : {}),
+      });
       const data = await res.json();
       if (res.ok) {
         if (data.matched) {
           Alert.alert(
             "It's a Match! 🎉",
-            `You and ${applicantName} are now connected. Open the chat?`,
+            jobTitle
+              ? `You and ${applicantName} are now connected for "${jobTitle}". Open the chat?`
+              : `You and ${applicantName} are now connected. Open the chat?`,
             [
               { text: "Later",  style: "cancel", onPress: () => fetchApplicants() },
               {
@@ -108,7 +136,7 @@ export default function ApplicantsScreen({ navigation }) {
   const renderItem = ({ item }) => {
     // Backend spreads user_id.toJSON() → item.id is the user's Mongo id
     const userId   = item.id;
-    const isActing = acting === String(userId);
+    const isActing = acting === `${userId}:${item.job?.id ?? "general"}`;
     return (
       <View style={styles.card}>
         {/* Header */}
@@ -132,7 +160,27 @@ export default function ApplicantsScreen({ navigation }) {
           <DetailRow icon="call-outline"     value={item.phone_number} />
           <DetailRow icon="location-outline" value={item.location} />
           <DetailRow icon="briefcase-outline" value={item.work_type} />
+          <DetailRow icon="language-outline" value={item.languages?.join(", ")} />
         </View>
+
+        {/* Bio */}
+        {item.bio ? (
+          <Text style={styles.bio} numberOfLines={3}>{item.bio}</Text>
+        ) : null}
+
+        {/* Skills */}
+        {item.skills?.length ? (
+          <View style={styles.skillsRow}>
+            {item.skills.slice(0, 6).map(skill => (
+              <View key={skill} style={styles.skillChip}>
+                <Text style={styles.skillChipText}>{skill}</Text>
+              </View>
+            ))}
+            {item.skills.length > 6 ? (
+              <Text style={styles.skillMore}>+{item.skills.length - 6}</Text>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* CV button */}
         {item.cv_path && (
@@ -161,7 +209,7 @@ export default function ApplicantsScreen({ navigation }) {
         <View style={styles.decisionRow}>
           <TouchableOpacity
             style={[styles.passBtn, isActing && styles.decisionBtnDisabled]}
-            onPress={() => handleDecision(userId, "pass", item.name)}
+            onPress={() => handleDecision(userId, "pass", item.name, item.job?.id, item.job?.title)}
             disabled={isActing}
           >
             {isActing
@@ -173,7 +221,7 @@ export default function ApplicantsScreen({ navigation }) {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.likeBtn, isActing && styles.decisionBtnDisabled]}
-            onPress={() => handleDecision(userId, "like", item.name)}
+            onPress={() => handleDecision(userId, "like", item.name, item.job?.id, item.job?.title)}
             disabled={isActing}
           >
             {isActing
@@ -200,10 +248,25 @@ export default function ApplicantsScreen({ navigation }) {
   }
 
   return (
-    <FlatList
-      data={applicants}
-      keyExtractor={item => item.swipe_id?.toString() ?? item.user_id?.toString()}
+    <SectionList
+      sections={sections}
+      keyExtractor={item => item.swipe_id?.toString()}
       renderItem={renderItem}
+      renderSectionHeader={({ section }) => (
+        <View style={styles.sectionHeader}>
+          <Ionicons name="briefcase" size={14} color={COLORS.primary} />
+          <Text style={styles.sectionTitle} numberOfLines={1}>{section.title}</Text>
+          {section.jobType ? (
+            <View style={styles.sectionTypeChip}>
+              <Text style={styles.sectionTypeText}>{section.jobType}</Text>
+            </View>
+          ) : null}
+          <Text style={styles.sectionCount}>
+            {section.data.length} applicant{section.data.length !== 1 ? "s" : ""}
+          </Text>
+        </View>
+      )}
+      stickySectionHeadersEnabled
       contentContainerStyle={styles.list}
       refreshControl={
         <RefreshControl
@@ -215,7 +278,7 @@ export default function ApplicantsScreen({ navigation }) {
       ListHeaderComponent={
         applicants.length > 0 ? (
           <Text style={styles.listHeader}>
-            {applicants.length} pending applicant{applicants.length !== 1 ? "s" : ""}
+            {applicants.length} pending applicant{applicants.length !== 1 ? "s" : ""} across {sections.length} listing{sections.length !== 1 ? "s" : ""}
           </Text>
         ) : null
       }
@@ -249,6 +312,41 @@ const styles = StyleSheet.create({
     fontSize: 13, color: COLORS.textSecondary, fontWeight: "600",
     marginBottom: SPACING.sm, textTransform: "uppercase", letterSpacing: 0.5,
   },
+
+  sectionHeader: {
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               8,
+    backgroundColor:   COLORS.background,
+    paddingVertical:   SPACING.sm,
+    marginBottom:      SPACING.xs,
+  },
+  sectionTitle: { fontSize: 15, fontWeight: "800", color: COLORS.textPrimary, flexShrink: 1 },
+  sectionTypeChip: {
+    backgroundColor:   COLORS.primaryLight,
+    borderRadius:      RADIUS.full,
+    paddingHorizontal: 8,
+    paddingVertical:   2,
+  },
+  sectionTypeText: { fontSize: 11, fontWeight: "700", color: COLORS.primary },
+  sectionCount:    { fontSize: 12, color: COLORS.textMuted, marginLeft: "auto" },
+
+  bio: {
+    fontSize:     13,
+    color:        COLORS.textSecondary,
+    lineHeight:   19,
+    marginBottom: SPACING.sm,
+    fontStyle:    "italic",
+  },
+  skillsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: SPACING.sm },
+  skillChip: {
+    backgroundColor:   COLORS.infoLight,
+    borderRadius:      RADIUS.full,
+    paddingHorizontal: 9,
+    paddingVertical:   4,
+  },
+  skillChipText: { fontSize: 11, fontWeight: "600", color: COLORS.info },
+  skillMore:     { fontSize: 11, color: COLORS.textMuted, fontWeight: "600" },
 
   card: {
     backgroundColor: COLORS.card,

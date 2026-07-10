@@ -3,6 +3,7 @@ import express          from "express";
 import Match            from "../models/Match.js";
 import BusinessDecision from "../models/BusinessDecision.js";
 import Swipe            from "../models/Swipe.js";
+import CV               from "../models/CV.js";
 import User             from "../models/User.js";
 import Business         from "../models/Business.js";
 import authMiddleware   from "../middleware/auth.js";
@@ -22,6 +23,7 @@ router.get("/", authMiddleware, async (req, res, next) => {
       .find(filter)
       .populate("user_id",     "name avatar_path expoPushToken")
       .populate("business_id", "business_name avatar_path expoPushToken")
+      .populate("job_id",      "job_title job_type")
       .sort({ last_message_at: -1, createdAt: -1 });
 
     // Shape the response from the perspective of the caller
@@ -34,6 +36,9 @@ router.get("/", authMiddleware, async (req, res, next) => {
       return {
         ...base,
         other_party:  other,
+        job: m.job_id
+          ? { id: m.job_id._id.toString(), title: m.job_id.job_title, type: m.job_id.job_type }
+          : null,
         unread_count: role === "user" ? base.unread_user : base.unread_business,
       };
     });
@@ -75,22 +80,42 @@ router.get("/applicants/pending", authMiddleware, async (req, res, next) => {
     // Users who right-swiped this business
     const swipes = await Swipe
       .find({ business_id: req.user.id, direction: "right" })
-      .populate("user_id", "name age email phone_number avatar_path location work_type experience_level industry_preference")
+      .populate("user_id", "name age email phone_number avatar_path location work_type experience_level industry_preference skills languages bio")
+      .populate("job_id",  "job_title job_type")
       .sort({ createdAt: -1 });
 
-    // Exclude users already decided on
-    const decidedIds = await BusinessDecision
+    // Exclude user+job combinations already decided on
+    const decisions = await BusinessDecision
       .find({ business_id: req.user.id })
-      .distinct("user_id");
-    const decidedSet = new Set(decidedIds.map(d => d.toString()));
+      .select("user_id job_id");
+    const decidedSet = new Set(
+      decisions.map(d => `${d.user_id}:${d.job_id ?? "null"}`)
+    );
+
+    // Attach each applicant's most recent CV sent to this business
+    const applicantIds = [...new Set(
+      swipes.filter(s => s.user_id).map(s => s.user_id._id.toString())
+    )];
+    const cvs = await CV
+      .find({ business_id: req.user.id, user_id: { $in: applicantIds } })
+      .sort({ createdAt: -1 });
+    const cvMap = {};
+    for (const cv of cvs) {
+      const key = cv.user_id.toString();
+      if (!cvMap[key]) cvMap[key] = cv.path;   // newest per user
+    }
 
     const pending = swipes
-      .filter(s => s.user_id && !decidedSet.has(s.user_id._id.toString()))
+      .filter(s => s.user_id && !decidedSet.has(`${s.user_id._id}:${s.job_id?._id ?? "null"}`))
       .map(s => ({
         swipe_id:   s._id.toString(),
         applied_at: s.createdAt,
         status:     s.status,
+        job: s.job_id
+          ? { id: s.job_id._id.toString(), title: s.job_id.job_title, type: s.job_id.job_type }
+          : null,
         ...s.user_id.toJSON(),
+        cv_path: cvMap[s.user_id._id.toString()] ?? s.user_id.cv_path ?? null,
       }));
 
     res.json(pending);
@@ -114,20 +139,25 @@ router.post("/applicants/:userId/decision", authMiddleware, async (req, res, nex
     }
 
     const { userId } = req.params;
+    const { jobId }  = req.body;   // optional — decide on a specific application
 
-    // Verify the user actually applied to this business
-    const swipe = await Swipe.findOne({
+    // Verify the user actually applied to this business (for this job, if given)
+    const swipeFilter = {
       user_id:     userId,
       business_id: req.user.id,
       direction:   "right",
-    });
+    };
+    if (jobId) swipeFilter.job_id = jobId;
+    const swipe = await Swipe.findOne(swipeFilter).sort({ createdAt: -1 });
     if (!swipe) {
       return res.status(404).json({ error: "This user has not applied to your business" });
     }
 
+    const matchedJobId = swipe.job_id ?? null;
+
     // Record decision (upsert — allows changing mind before a match)
     await BusinessDecision.findOneAndUpdate(
-      { business_id: req.user.id, user_id: userId },
+      { business_id: req.user.id, user_id: userId, job_id: matchedJobId },
       { decision },
       { upsert: true, new: true }
     );
@@ -136,14 +166,22 @@ router.post("/applicants/:userId/decision", authMiddleware, async (req, res, nex
       return res.json({ matched: false });
     }
 
-    // ── It's a like — check for mutual match ────────────────────────────────
-    const existingMatch = await Match.findOne({ user_id: userId, business_id: req.user.id });
+    // ── It's a like — check for mutual match (per job) ──────────────────────
+    const existingMatch = await Match.findOne({
+      user_id:     userId,
+      business_id: req.user.id,
+      job_id:      matchedJobId,
+    });
     if (existingMatch) {
       return res.json({ matched: true, match: existingMatch.toJSON() });
     }
 
     // Create the match
-    const match = await Match.create({ user_id: userId, business_id: req.user.id });
+    const match = await Match.create({
+      user_id:     userId,
+      business_id: req.user.id,
+      job_id:      matchedJobId || undefined,
+    });
 
     // Notify both parties
     const [user, biz] = await Promise.all([

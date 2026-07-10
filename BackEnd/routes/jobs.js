@@ -3,7 +3,11 @@
 import express from "express";
 import { body, validationResult } from "express-validator";
 import JobListing    from "../models/JobListing.js";
+import Business      from "../models/Business.js";
+import Swipe         from "../models/Swipe.js";
+import User          from "../models/User.js";
 import authMiddleware from "../middleware/auth.js";
+import { rankBusinessesForUser } from "../utils/matchScore.js";
 
 const router = express.Router();
 
@@ -74,6 +78,83 @@ router.get("/", authMiddleware, async (req, res, next) => {
       .limit(100);
 
     res.json(listings);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /jobs/feed ────────────────────────────────────────────────────────────
+// The swipe deck: one card per active job listing, ranked for the logged-in
+// user, excluding jobs already swiped on. Legacy business-level swipes
+// (job_id null) hide ALL of that business's jobs so users don't re-see
+// businesses they already decided on before per-job swiping existed.
+router.get("/feed", authMiddleware, async (req, res, next) => {
+  try {
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users can view the job feed" });
+    }
+
+    // 1 — Full user profile (needed for preference-based scoring)
+    const user = await User
+      .findById(req.user.id)
+      .select("work_type industry_preference location travel_distance traits");
+
+    // 2 — What the user has already swiped on
+    const swipes = await Swipe
+      .find({ user_id: req.user.id })
+      .select("business_id job_id");
+    const swipedJobIds        = new Set();
+    const fullySwipedBizIds   = new Set();
+    for (const s of swipes) {
+      if (s.job_id) swipedJobIds.add(s.job_id.toString());
+      else          fullySwipedBizIds.add(s.business_id.toString());   // legacy
+    }
+
+    // 3 — Candidate jobs: active, not yet swiped, business not legacy-swiped
+    const jobs = await JobListing
+      .find({
+        is_active: true,
+        _id:         { $nin: [...swipedJobIds] },
+        business_id: { $nin: [...fullySwipedBizIds] },
+      })
+      .sort({ createdAt: -1 })
+      .limit(300);
+
+    if (jobs.length === 0) return res.json([]);
+
+    // 4 — Fetch the owning businesses in one query
+    const bizIds = [...new Set(jobs.map(j => j.business_id.toString()))];
+    const businesses = await Business
+      .find({ _id: { $in: bizIds } })
+      .select("business_name street city postcode description industry avatar_path");
+    const bizMap = Object.fromEntries(businesses.map(b => [b._id.toString(), b]));
+
+    // 5 — One rankable entry per job (business fields + this job as job_listing)
+    const merged = jobs
+      .filter(j => bizMap[j.business_id.toString()])
+      .map(j => {
+        const biz = bizMap[j.business_id.toString()];
+        return { ...biz.toJSON(), job_listing: j.toJSON() };
+      });
+
+    const ranked = rankBusinessesForUser(user?.toJSON?.() ?? user ?? {}, merged);
+
+    // 6 — Shape for the deck: job front and center, business as context
+    const feed = ranked.slice(0, 50).map(e => ({
+      job: e.job_listing,
+      business: {
+        id:            e.id,
+        business_name: e.business_name,
+        street:        e.street,
+        city:          e.city,
+        description:   e.description,
+        industry:      e.industry,
+        avatar_path:   e.avatar_path,
+      },
+      match_score: e.match_score,
+    }));
+
+    res.json(feed);
   } catch (err) {
     next(err);
   }

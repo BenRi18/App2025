@@ -1,22 +1,25 @@
-// FrontEnd/screens/BusinessApp.js — bottom-tab shell for the business experience
+// FrontEnd/screens/BusinessApp.js — bottom-tab shell for the business experience.
+// Tabs: Jobs · Applicants · Matches · Messages · Profile — all business-specific
+// screens. Applicants stays because liking applicants is how matches are created.
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Ionicons }        from "@expo/vector-icons";
-import BusinessDashboard   from "./business/BusinessDashboard";
-import ApplicantsScreen    from "./business/ApplicantsScreen";
-import MatchesScreen       from "./shared/MatchesScreen";
-import JobListingsScreen   from "./business/JobListingsScreen";
-import ProfileScreen       from "./shared/ProfileScreen";
-import { COLORS }          from "../theme";
+import { Ionicons } from "@expo/vector-icons";
+
+import JobListingsScreen       from "./business/JobListingsScreen";
+import ApplicantsScreen        from "./business/ApplicantsScreen";
+import BusinessMatchesScreen   from "./business/BusinessMatchesScreen";
+import BusinessMessagesScreen  from "./business/BusinessMessagesScreen";
+import BusinessProfileScreen   from "./business/BusinessProfileScreen";
+import { COLORS } from "../theme";
 
 const Tab = createBottomTabNavigator();
 
 const TAB_ICONS = {
-  "Dashboard":         { focused: "grid",       blur: "grid-outline" },
-  "Applicants":        { focused: "people",     blur: "people-outline" },
-  "Matches":           { focused: "chatbubbles",blur: "chatbubbles-outline" },
-  "Jobs":              { focused: "briefcase",  blur: "briefcase-outline" },
-  "Business Profile":  { focused: "business",  blur: "business-outline" },
+  "Jobs":       { focused: "briefcase",   blur: "briefcase-outline" },
+  "Applicants": { focused: "people",      blur: "people-outline" },
+  "Matches":    { focused: "heart",       blur: "heart-outline" },
+  "Messages":   { focused: "chatbubbles", blur: "chatbubbles-outline" },
+  "Profile":    { focused: "business",    blur: "business-outline" },
 };
 
 export default function BusinessApp() {
@@ -48,11 +51,11 @@ export default function BusinessApp() {
         },
       })}
     >
-      <Tab.Screen name="Dashboard"        component={BusinessDashboard} />
-      <Tab.Screen name="Applicants"       component={ApplicantsScreen} />
-      <Tab.Screen name="Matches"          component={MatchesScreen} />
-      <Tab.Screen name="Jobs"             component={JobListingsScreen} />
-      <Tab.Screen name="Business Profile" component={ProfileScreen} />
+      <Tab.Screen name="Jobs"       component={JobListingsScreen} />
+      <Tab.Screen name="Applicants" component={ApplicantsScreen} />
+      <Tab.Screen name="Matches"    component={BusinessMatchesScreen} />
+      <Tab.Screen name="Messages"   component={BusinessMessagesScreen} />
+      <Tab.Screen name="Profile"    component={BusinessProfileScreen} />
     </Tab.Navigator>
   );
 }
