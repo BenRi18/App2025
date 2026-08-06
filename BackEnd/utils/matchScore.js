@@ -100,21 +100,96 @@ function industryScore(user, business, job) {
   return best;
 }
 
-/** Simple city-string match. Upgrade path: geocode + haversine distance. */
+// Lanzarote town coordinates — covers every settlement that realistically
+// appears in a location field. Small island, hardcoding beats a geocoding API.
+const LANZAROTE_TOWNS = {
+  "arrecife":            [28.963, -13.548],
+  "puerto del carmen":   [28.921, -13.663],
+  "costa teguise":       [29.005, -13.505],
+  "playa blanca":        [28.865, -13.833],
+  "playa honda":         [28.955, -13.583],
+  "tias":                [28.961, -13.645],
+  "tías":                [28.961, -13.645],
+  "yaiza":               [28.952, -13.765],
+  "san bartolome":       [29.000, -13.621],
+  "san bartolomé":       [29.000, -13.621],
+  "teguise":             [29.060, -13.564],
+  "haria":               [29.144, -13.502],
+  "haría":               [29.144, -13.502],
+  "tinajo":              [29.063, -13.678],
+  "puerto calero":       [28.916, -13.702],
+  "caleta de famara":    [29.115, -13.554],
+  "famara":              [29.115, -13.554],
+  "orzola":              [29.221, -13.454],
+  "órzola":              [29.221, -13.454],
+  "la santa":            [29.110, -13.660],
+  "arrieta":             [29.131, -13.457],
+  "macher":              [28.938, -13.687],
+  "mácher":              [28.938, -13.687],
+  "uga":                 [28.938, -13.744],
+  "guime":               [28.972, -13.601],
+  "güime":               [28.972, -13.601],
+  "mala":                [29.098, -13.470],
+  "tahiche":             [29.011, -13.556],
+  "conil":               [28.949, -13.665],
+};
+
+/** Find town coords inside a free-text location string. */
+function findTown(text) {
+  if (!text) return null;
+  // longest names first so "puerto del carmen" wins over "carmen"-less matches
+  for (const town of Object.keys(LANZAROTE_TOWNS).sort((a, b) => b.length - a.length)) {
+    if (text.includes(town)) return LANZAROTE_TOWNS[town];
+  }
+  return null;
+}
+
+/** Great-circle distance in km. */
+function haversineKm([lat1, lon1], [lat2, lon2]) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/** travel_distance enum → km limit. */
+const TRAVEL_LIMITS = { "5km": 5, "10km": 10, "25km": 25, "any": Infinity };
+
+/**
+ * Distance-aware location score. Falls back to string matching when a town
+ * isn't recognized. Within the user's travel limit scores decay gently with
+ * distance; beyond it, sharply — but never to a hard zero on-island.
+ */
 function locationScore(user, business) {
   const userLoc = norm(user?.location);
   const bizCity = norm(business?.city);
 
   if (!userLoc || !bizCity) return 0.4;      // unknown → mild penalty, not zero
 
-  // Exact or substring match either way ("puerto del carmen" vs "puerto del carmen, lanzarote")
   if (userLoc === bizCity)          return 1.0;
   if (userLoc.includes(bizCity) ||
-      bizCity.includes(userLoc))    return 0.9;
+      bizCity.includes(userLoc))    return 0.95;
 
-  // Users willing to travel anywhere shouldn't be punished for distance
+  const from = findTown(userLoc);
+  const to   = findTown(bizCity);
+
+  if (from && to) {
+    const km    = haversineKm(from, to);
+    const limit = TRAVEL_LIMITS[norm(user?.travel_distance)] ?? 15;
+
+    if (km <= limit) {
+      // Inside the limit: 1.0 next door, gently down to 0.7 at the limit
+      return limit === Infinity
+        ? Math.max(0.7, 1 - km / 60)
+        : 1 - 0.3 * (km / limit);
+    }
+    // Beyond the limit: sharp decay, floor of 0.05 (it's still one island)
+    return Math.max(0.05, 0.6 - 0.04 * (km - limit));
+  }
+
+  // Towns unrecognized → old behavior
   if (norm(user?.travel_distance) === "any") return 0.6;
-
   return 0.0;
 }
 

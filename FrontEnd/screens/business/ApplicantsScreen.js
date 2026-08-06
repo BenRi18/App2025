@@ -69,6 +69,10 @@ export default function ApplicantsScreen({ navigation }) {
       byJob.get(key).data.push(a);
     }
     const list = [...byJob.values()];
+    // Best personality fit first within each listing (unknown fit last)
+    for (const sec of list) {
+      sec.data.sort((x, y) => (y.fit_score ?? -1) - (x.fit_score ?? -1));
+    }
     // Keep "General applications" last
     list.sort((x, y) => (x.key === "__general__") - (y.key === "__general__"));
     return list;
@@ -151,6 +155,22 @@ export default function ApplicantsScreen({ navigation }) {
             {item.age ? <Text style={styles.meta}>Age {item.age}</Text> : null}
             {item.experience_level ? <Text style={styles.meta}>{item.experience_level}</Text> : null}
           </View>
+          {typeof item.fit_score === "number" && (
+            <View style={[
+              styles.fitBadge,
+              item.fit_score >= 75 ? styles.fitHigh :
+              item.fit_score >= 50 ? styles.fitMid  : styles.fitLow,
+            ]}>
+              <Ionicons name="flash" size={11}
+                color={item.fit_score >= 75 ? COLORS.success :
+                       item.fit_score >= 50 ? COLORS.primary : COLORS.textMuted} />
+              <Text style={[
+                styles.fitBadgeText,
+                { color: item.fit_score >= 75 ? COLORS.success :
+                         item.fit_score >= 50 ? COLORS.primary : COLORS.textMuted },
+              ]}>{item.fit_score}%</Text>
+            </View>
+          )}
           <StatusBadge status={item.status} />
         </View>
 
@@ -312,6 +332,20 @@ const styles = StyleSheet.create({
     fontSize: 13, color: COLORS.textSecondary, fontWeight: "600",
     marginBottom: SPACING.sm, textTransform: "uppercase", letterSpacing: 0.5,
   },
+
+  fitBadge: {
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               3,
+    borderRadius:      RADIUS.full,
+    paddingHorizontal: 8,
+    paddingVertical:   4,
+    marginRight:       6,
+  },
+  fitHigh: { backgroundColor: COLORS.successLight ?? "#E7F6EC" },
+  fitMid:  { backgroundColor: COLORS.primaryLight },
+  fitLow:  { backgroundColor: COLORS.border },
+  fitBadgeText: { fontSize: 11.5, fontWeight: "800" },
 
   sectionHeader: {
     flexDirection:     "row",

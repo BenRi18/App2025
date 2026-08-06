@@ -91,7 +91,7 @@ export default function MatchModal({ match, onMessage, onDismiss }) {
 const styles = StyleSheet.create({
   backdrop: {
     flex:            1,
-    backgroundColor: "rgba(15, 23, 42, 0.75)",
+    backgroundColor: "rgba(23, 40, 42, 0.78)",
     alignItems:      "center",
     justifyContent:  "center",
     padding:         SPACING.lg,
@@ -100,13 +100,13 @@ const styles = StyleSheet.create({
     width:           "100%",
     maxWidth:        360,
     backgroundColor: COLORS.card,
-    borderRadius:    RADIUS.lg,
+    borderRadius:    RADIUS.xl,
     padding:         SPACING.xl,
     alignItems:      "center",
-    ...SHADOWS.md,
+    ...SHADOWS.lg,
   },
 
-  title: { fontSize: 26, fontWeight: "800", color: COLORS.primary, marginBottom: SPACING.lg },
+  title: { fontSize: 28, fontWeight: "900", letterSpacing: -0.5, color: COLORS.accent, marginBottom: SPACING.lg },
 
   avatarRow: { flexDirection: "row", alignItems: "center", marginBottom: SPACING.md },
   avatar: {
@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     width:           44,
     height:          44,
     borderRadius:    22,
-    backgroundColor: COLORS.danger,
+    backgroundColor: COLORS.accent,
     alignItems:      "center",
     justifyContent:  "center",
     marginHorizontal: -12,
@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     alignItems:      "center",
     justifyContent:  "center",
     gap:             8,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.accent,
     borderRadius:    RADIUS.md,
     paddingVertical: 13,
     width:           "100%",

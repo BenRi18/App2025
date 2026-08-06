@@ -100,6 +100,43 @@ export default function UserProfileScreen({ navigation }) {
         ))}
       </View>
 
+      {/* Personality profile */}
+      <View style={styles.card}>
+        <View style={styles.traitHeader}>
+          <Ionicons name="sparkles" size={16} color={COLORS.primary} />
+          <Text style={styles.traitTitle}>Your Personality Profile</Text>
+        </View>
+        {user?.traits && Object.keys(user.traits).length > 0 ? (
+          Object.entries({
+            energy:         "Energy",
+            social:         "People person",
+            teamwork:       "Team player",
+            routine:        "Loves routine",
+            responsibility: "Reliability",
+            creativity:     "Creativity",
+            outdoors:       "Outdoors",
+            pressure:       "Cool under pressure",
+          }).map(([key, label]) => (
+            <View key={key} style={styles.traitRow}>
+              <Text style={styles.traitLabel}>{label}</Text>
+              <View style={styles.traitTrack}>
+                <View style={[styles.traitFill, { width: `${Math.round((user.traits[key] ?? 0.5) * 100)}%` }]} />
+              </View>
+            </View>
+          ))
+        ) : (
+          <TouchableOpacity
+            style={styles.traitCta}
+            onPress={() => navigation.navigate("Questionnaire")}
+          >
+            <Text style={styles.traitCtaText}>
+              Take the 2-minute quiz to see your profile and get better matches
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {/* Action buttons */}
       <View style={styles.actions}>
         <TouchableOpacity
@@ -108,6 +145,17 @@ export default function UserProfileScreen({ navigation }) {
         >
           <Ionicons name="create-outline" size={18} color={COLORS.primary} />
           <Text style={styles.actionBtnText}>Edit Profile</Text>
+          <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} style={{ marginLeft: "auto" }} />
+        </TouchableOpacity>
+
+        <View style={styles.actionDivider} />
+
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => navigation.navigate("Questionnaire")}
+        >
+          <Ionicons name="sparkles-outline" size={18} color={COLORS.primary} />
+          <Text style={styles.actionBtnText}>Improve My Matches</Text>
           <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} style={{ marginLeft: "auto" }} />
         </TouchableOpacity>
 
@@ -215,6 +263,28 @@ const styles = StyleSheet.create({
     overflow:        "hidden",
     ...SHADOWS.sm,
   },
+  traitHeader: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingVertical: 13, paddingHorizontal: SPACING.md,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  traitTitle: { fontSize: 14.5, fontWeight: "700", color: COLORS.textPrimary },
+  traitRow: {
+    flexDirection: "row", alignItems: "center",
+    paddingVertical: 8, paddingHorizontal: SPACING.md, gap: 10,
+  },
+  traitLabel: { fontSize: 13, color: COLORS.textSecondary, width: 130 },
+  traitTrack: {
+    flex: 1, height: 8, borderRadius: 4,
+    backgroundColor: COLORS.border, overflow: "hidden",
+  },
+  traitFill:  { height: 8, borderRadius: 4, backgroundColor: COLORS.primary },
+  traitCta: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    padding: SPACING.md, gap: 8,
+  },
+  traitCtaText: { flex: 1, fontSize: 13.5, color: COLORS.primary, fontWeight: "600", lineHeight: 19 },
+
   actionBtn: {
     flexDirection:     "row",
     alignItems:        "center",

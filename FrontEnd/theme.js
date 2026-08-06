@@ -1,23 +1,43 @@
-// FrontEnd/theme.js — shared design tokens used across all screens
+// FrontEnd/theme.js — Atlantic Light design tokens.
+//
+// The identity: deep Atlantic teal doing the everyday work, coral reserved
+// for the moments that matter (apply, match, message), everything resting on
+// sun-bleached sand surfaces. Warm where template apps are cold.
 
 export const COLORS = {
-  primary:       '#2563EB',
-  primaryLight:  '#EFF6FF',
-  primaryDark:   '#1D4ED8',
-  background:    '#F8FAFC',
+  // Ocean — the working color
+  primary:       '#0B6E72',   // deep Atlantic teal
+  primaryLight:  '#E3F1F0',   // sea glass
+  primaryDark:   '#084F53',
+
+  // Coral — the emotional color. Use sparingly: apply, match, celebrate.
+  accent:        '#F2695C',
+  accentLight:   '#FDEAE6',
+
+  // Sun — one job only: the match-score flash
+  sun:           '#F4B942',
+  sunLight:      '#FCF2DC',
+
+  // Surfaces — sun-bleached, never clinical
+  background:    '#FAF6F0',   // sand-white
   card:          '#FFFFFF',
-  textPrimary:   '#1E293B',
-  textSecondary: '#64748B',
-  textMuted:     '#94A3B8',
-  border:        '#E2E8F0',
-  success:       '#22C55E',
-  successLight:  '#DCFCE7',
-  danger:        '#EF4444',
-  dangerLight:   '#FEE2E2',
-  warning:       '#F59E0B',
-  warningLight:  '#FEF3C7',
-  info:          '#0EA5E9',
-  infoLight:     '#E0F2FE',
+
+  // Ink with sea depth
+  textPrimary:   '#17282A',
+  textSecondary: '#4E6467',
+  textMuted:     '#93A6A6',
+
+  border:        '#EAE2D6',   // warm sand hairline
+
+  // States — kept in the same warm family
+  success:       '#1E9E6A',
+  successLight:  '#E1F4EA',
+  danger:        '#E2503F',
+  dangerLight:   '#FBE7E3',
+  warning:       '#E9A23B',
+  warningLight:  '#FBF0DB',
+  info:          '#2C8FA3',   // lagoon
+  infoLight:     '#E2F1F5',
 };
 
 export const SPACING = {
@@ -29,25 +49,41 @@ export const SPACING = {
 };
 
 export const RADIUS = {
-  sm:   8,
-  md:   12,
-  lg:   16,
+  sm:   10,
+  md:   14,
+  lg:   20,
+  xl:   28,
   full: 999,
 };
 
+// Warm-tinted shadows — grey shadows on sand look dirty
 export const SHADOWS = {
   sm: {
-    shadowColor:   '#000',
-    shadowOpacity: 0.06,
-    shadowOffset:  { width: 0, height: 1 },
-    shadowRadius:  4,
+    shadowColor:   '#6B5B45',
+    shadowOpacity: 0.08,
+    shadowOffset:  { width: 0, height: 2 },
+    shadowRadius:  6,
     elevation:     2,
   },
   md: {
-    shadowColor:   '#000',
-    shadowOpacity: 0.10,
-    shadowOffset:  { width: 0, height: 3 },
-    shadowRadius:  8,
+    shadowColor:   '#6B5B45',
+    shadowOpacity: 0.12,
+    shadowOffset:  { width: 0, height: 4 },
+    shadowRadius:  12,
     elevation:     4,
   },
+  lg: {
+    shadowColor:   '#6B5B45',
+    shadowOpacity: 0.16,
+    shadowOffset:  { width: 0, height: 8 },
+    shadowRadius:  20,
+    elevation:     8,
+  },
+};
+
+// Type presets — personality through weight and tracking, no font deps.
+// display: big, heavy, tight. eyebrow: tiny, wide-tracked caps.
+export const TYPE = {
+  display: { fontSize: 28, fontWeight: '900', letterSpacing: -0.5, color: COLORS.textPrimary },
+  eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 1.6, textTransform: 'uppercase', color: COLORS.primary },
 };

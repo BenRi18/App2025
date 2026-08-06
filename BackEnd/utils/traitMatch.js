@@ -28,9 +28,15 @@ export function computeUserTraits(answers) {
 
   if (Object.keys(sums).length === 0) return null;
 
+  // Confidence shrinkage: blend each trait's average with the neutral prior
+  // (0.5) weighted by PRIOR_K "virtual answers" — one supporting answer
+  // shouldn't be trusted as much as six.
+  const PRIOR_K = 1;
   const vector = {};
   for (const t of TRAITS) {
-    if (counts[t]) vector[t] = +(sums[t] / counts[t]).toFixed(3);
+    if (counts[t]) {
+      vector[t] = +((sums[t] + PRIOR_K * 0.5) / (counts[t] + PRIOR_K)).toFixed(3);
+    }
   }
   return vector;
 }

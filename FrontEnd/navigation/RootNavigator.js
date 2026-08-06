@@ -23,6 +23,7 @@ import BusinessApp from "../screens/BusinessApp";
 
 // ── Push screens (shared, accessible from any tab) ──────────────────────────
 import ChatScreen          from "../screens/shared/ChatScreen";
+import QuestionnaireScreen from "../screens/user/QuestionnaireScreen";
 import EditProfileScreen   from "../screens/shared/EditProfileScreen";
 import ChangePasswordScreen from "../screens/shared/ChangePasswordScreen";
 
@@ -62,6 +63,11 @@ export default function RootNavigator() {
           // ── Job seeker app ────────────────────────────────────────────────
           <>
             <Stack.Screen name="UserApp"   component={UserApp} />
+            <Stack.Screen
+              name="QuestionnaireModal"
+              component={QuestionnaireScreen}
+              options={{ headerShown: false, presentation: "modal" }}
+            />
             <Stack.Screen
               name="Chat"
               component={ChatScreen}

@@ -8,7 +8,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/AuthContext";
 import { API_URL }     from "../../services/api";
-import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
+import { COLORS, SPACING, RADIUS, SHADOWS, TYPE } from "../../theme";
 
 export default function LoginScreen({ route, navigation }) {
   const { role }                        = route.params || {};
@@ -64,13 +64,14 @@ export default function LoginScreen({ route, navigation }) {
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
 
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>
-            Logging in as a{" "}
-            <Text style={styles.roleHighlight}>
-              {role === "user" ? "Job Seeker" : "Business"}
-            </Text>
+          <Text style={styles.roleEyebrow}>
+            {role === "user" ? "Job Seeker" : "Business"}
           </Text>
+          <Text style={styles.title}>Welcome back.</Text>
+          <View style={styles.horizon}>
+            <View style={styles.horizonDash} />
+            <View style={styles.horizonLine} />
+          </View>
 
           {/* Email */}
           <Text style={styles.label}>Email</Text>
@@ -150,9 +151,11 @@ const styles = StyleSheet.create({
   back:     { flexDirection: "row", alignItems: "center", marginBottom: SPACING.xl },
   backText: { color: COLORS.primary, fontWeight: "600", marginLeft: 2, fontSize: 15 },
 
-  title:         { fontSize: 28, fontWeight: "800", color: COLORS.textPrimary, marginBottom: 6 },
-  subtitle:      { fontSize: 15, color: COLORS.textSecondary, marginBottom: SPACING.xl },
-  roleHighlight: { color: COLORS.primary, fontWeight: "700" },
+  roleEyebrow: { ...TYPE.eyebrow, marginBottom: 6 },
+  title:       { fontSize: 32, fontWeight: "900", letterSpacing: -0.7, color: COLORS.textPrimary, marginBottom: SPACING.sm },
+  horizon:     { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: SPACING.xl },
+  horizonDash: { width: 26, height: 3, borderRadius: 2, backgroundColor: COLORS.accent },
+  horizonLine: { width: 90, height: 1.5, borderRadius: 1, backgroundColor: COLORS.primaryLight },
 
   label: { fontSize: 14, fontWeight: "600", color: COLORS.textPrimary, marginBottom: 6 },
   input: {

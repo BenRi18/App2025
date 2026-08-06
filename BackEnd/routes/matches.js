@@ -4,6 +4,7 @@ import Match            from "../models/Match.js";
 import BusinessDecision from "../models/BusinessDecision.js";
 import Swipe            from "../models/Swipe.js";
 import CV               from "../models/CV.js";
+import { traitCompatibility, inferArchetype } from "../utils/traitMatch.js";
 import User             from "../models/User.js";
 import Business         from "../models/Business.js";
 import authMiddleware   from "../middleware/auth.js";
@@ -80,8 +81,8 @@ router.get("/applicants/pending", authMiddleware, async (req, res, next) => {
     // Users who right-swiped this business
     const swipes = await Swipe
       .find({ business_id: req.user.id, direction: "right" })
-      .populate("user_id", "name age email phone_number avatar_path location work_type experience_level industry_preference skills languages bio")
-      .populate("job_id",  "job_title job_type")
+      .populate("user_id", "name age email phone_number avatar_path location work_type experience_level industry_preference skills languages bio traits")
+      .populate("job_id",  "job_title job_type archetype description job_description")
       .sort({ createdAt: -1 });
 
     // Exclude user+job combinations already decided on
@@ -114,6 +115,13 @@ router.get("/applicants/pending", authMiddleware, async (req, res, next) => {
         job: s.job_id
           ? { id: s.job_id._id.toString(), title: s.job_id.job_title, type: s.job_id.job_type }
           : null,
+        // Personality fit vs the job they applied for (0–100, null if unknowable)
+        fit_score: (() => {
+          if (!s.user_id.traits) return null;
+          const arch = s.job_id ? inferArchetype(s.job_id.toJSON()) : null;
+          if (!arch) return null;
+          return Math.round(traitCompatibility(s.user_id.traits, arch) * 100);
+        })(),
         ...s.user_id.toJSON(),
         cv_path: cvMap[s.user_id._id.toString()] ?? s.user_id.cv_path ?? null,
       }));
