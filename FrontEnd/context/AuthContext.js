@@ -3,7 +3,8 @@ import React, { createContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Platform }       from "react-native";
-import { API_URL }        from "../services/api";
+import { api, API_URL }   from "../services/api";
+import { DEV_FORCE_LOGIN } from "../config";
 import { connectSocket, disconnectSocket } from "../services/socket";
 
 export const AuthContext = createContext();
@@ -56,15 +57,44 @@ export default function AuthProvider({ children }) {
   useEffect(() => {
     (async () => {
       try {
+        // Dev-only: force the login screen every boot while testing
+        if (__DEV__ && DEV_FORCE_LOGIN) {
+          await AsyncStorage.multiRemove(["token", "refreshToken", "role"]);
+          return;
+        }
+
         const [t, rt, r] = await AsyncStorage.multiGet(["token", "refreshToken", "role"]);
         const tok  = t[1];
         const rt_  = rt[1];
         const role_= r[1];
         if (tok) {
-          setToken(tok);
-          setRefreshToken(rt_);
-          setRole(role_);
-          connectSocket(tok);
+          // Validate the stored session before trusting it. api.get
+          // auto-refreshes an expired access token; if refresh fails it
+          // clears storage and throws.
+          try {
+            const res = await api.get("/auth/me");
+            if (res.ok) {
+              setToken(await AsyncStorage.getItem("token")); // may have been refreshed
+              setRefreshToken(await AsyncStorage.getItem("refreshToken"));
+              setRole(role_);
+              connectSocket(tok);
+            } else if (res.status === 404 || res.status === 403) {
+              // Account no longer exists on this server (e.g. different DB)
+              await AsyncStorage.multiRemove(["token", "refreshToken", "role"]);
+            } else {
+              // Server-side error — keep the session, don't punish the user
+              setToken(tok); setRefreshToken(rt_); setRole(role_);
+              connectSocket(tok);
+            }
+          } catch (err) {
+            if (err.sessionExpired) {
+              // Refresh failed — storage already cleared by api.js
+            } else {
+              // Network unreachable — keep the session optimistically
+              setToken(tok); setRefreshToken(rt_); setRole(role_);
+              connectSocket(tok);
+            }
+          }
         }
       } catch (e) {
         console.warn("Failed to restore session:", e);

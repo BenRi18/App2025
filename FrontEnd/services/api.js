@@ -1,15 +1,12 @@
 // FrontEnd/services/api.js
 // Central API client — adds auth headers automatically and silently refreshes
 // expired access tokens.
-//
-// ⚠️  Change API_URL to match your machine:
-//   iOS Simulator  → http://localhost:3000
-//   Android Emu    → http://10.0.2.2:3000
-//   Physical device → http://<your-local-ip>:3000
+// The URL comes from config.js (auto-detected LAN IP, or MANUAL_API_URL).
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { API_URL } from "../config";
 
-export const API_URL = "http://localhost:3000";
+export { API_URL };
 
 // ─── Build request headers ────────────────────────────────────────────────────
 async function buildHeaders(isFormData = false) {

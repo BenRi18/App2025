@@ -12,7 +12,7 @@ import JobCard from "../../components/JobCard";
 import { AuthContext } from "../../context/AuthContext";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
-const API_URL = "http://localhost:3000";
+import { API_URL } from "../../config";
 
 export default function SwipeScreen({ navigation }) {
   const [feed, setFeed]               = useState([]);

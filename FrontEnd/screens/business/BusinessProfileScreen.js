@@ -42,6 +42,10 @@ export default function BusinessProfileScreen({ navigation }) {
       <View style={styles.center}>
         <Ionicons name="alert-circle-outline" size={48} color={COLORS.danger} />
         <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.errorLogout} onPress={logout}>
+          <Ionicons name="log-out-outline" size={18} color="#FFF" />
+          <Text style={styles.errorLogoutText}>Log Out</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -133,6 +137,12 @@ export default function BusinessProfileScreen({ navigation }) {
 const styles = StyleSheet.create({
   center:    { flex: 1, alignItems: "center", justifyContent: "center" },
   errorText: { color: COLORS.danger, marginTop: SPACING.sm, fontSize: 14 },
+  errorLogout: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: COLORS.danger, borderRadius: RADIUS.md,
+    paddingHorizontal: 24, paddingVertical: 11, marginTop: SPACING.lg,
+  },
+  errorLogoutText: { color: "#FFF", fontSize: 14, fontWeight: "700" },
 
   container: { flex: 1, backgroundColor: COLORS.background },
   content:   { padding: SPACING.lg, alignItems: "center", paddingBottom: 40 },

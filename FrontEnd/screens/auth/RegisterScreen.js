@@ -52,7 +52,7 @@ import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const API_URL     = "http://localhost:3000";
+import { API_URL } from "../../config";
 const TOTAL_STEPS = 3;
 
 // RFC 5322–inspired regex — covers virtually all valid email addresses

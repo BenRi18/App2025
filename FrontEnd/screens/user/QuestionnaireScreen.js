@@ -11,7 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/AuthContext";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
-const API_URL = "http://localhost:3000";
+import { API_URL } from "../../config";
 
 // Friendly labels for the trait keys the backend returns
 const TRAIT_LABELS = {
