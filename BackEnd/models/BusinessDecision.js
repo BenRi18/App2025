@@ -6,13 +6,15 @@ const businessDecisionSchema = new mongoose.Schema(
   {
     business_id: { type: mongoose.Schema.Types.ObjectId, ref: "Business", required: true },
     user_id:     { type: mongoose.Schema.Types.ObjectId, ref: "User",     required: true },
+    // Optional — the job listing the decision refers to (carried from the swipe).
+    job_id:      { type: mongoose.Schema.Types.ObjectId, ref: "JobListing" },
     decision:    { type: String, enum: ["like", "pass"], required: true },
   },
   { timestamps: true }
 );
 
 // A business can only decide once per user
-businessDecisionSchema.index({ business_id: 1, user_id: 1 }, { unique: true });
+businessDecisionSchema.index({ business_id: 1, user_id: 1, job_id: 1 }, { unique: true });
 
 businessDecisionSchema.set("toJSON", {
   virtuals: true,

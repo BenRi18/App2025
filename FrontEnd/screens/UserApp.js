@@ -1,36 +1,40 @@
-// FrontEnd/screens/UserApp.js — job-seeker shell: a stack wrapping the bottom
-// tabs, so full-screen flows (like the personality quiz) can sit on top.
-// Tabs: Find Jobs · Matches · Messages · Profile — all user-specific screens.
-import React, { useState, useEffect } from "react";
+// FrontEnd/screens/UserApp.js — job-seeker shell.
+// Tabs: Dashboard · Applications · Messages · Profile.
+// Gated behind the profile-requirements checklist; unread badge on Messages.
+import React from "react";
+import { View } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import SwipeScreen         from "./user/SwipeScreen";
-import UserMatchesScreen   from "./user/UserMatchesScreen";
+import ApplicationsScreen  from "./user/ApplicationsScreen";
 import UserMessagesScreen  from "./user/UserMessagesScreen";
 import UserProfileScreen   from "./user/UserProfileScreen";
 import QuestionnaireScreen from "./user/QuestionnaireScreen";
-import { useUnreadCount } from "../hooks/useUnreadCount";
-import RequirementsScreen from "../components/RequirementsScreen";
+import MatchModal          from "../components/MatchModal";
+import RequirementsScreen  from "../components/RequirementsScreen";
 import { missingRequirements } from "../utils/profileRequirements";
-import { api } from "../services/api";
-import MatchModal from "../components/MatchModal";
+import { useUnreadCount } from "../hooks/useUnreadCount";
 import { getSocket } from "../services/socket";
+import { api } from "../services/api";
 import { COLORS } from "../theme";
 
 const Tab   = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const TAB_ICONS = {
-  "Find Jobs": { focused: "swap-horizontal", blur: "swap-horizontal-outline" },
-  "Matches":   { focused: "heart",           blur: "heart-outline" },
-  "Messages":  { focused: "chatbubbles",     blur: "chatbubbles-outline" },
-  "Profile":   { focused: "person",          blur: "person-outline" },
+  Dashboard:    { focused: "compass",         blur: "compass-outline" },
+  Applications: { focused: "file-tray-full",  blur: "file-tray-outline" },
+  Messages:     { focused: "chatbubbles",     blur: "chatbubbles-outline" },
+  Profile:      { focused: "person",          blur: "person-outline" },
 };
 
 function UserTabs() {
   const unread = useUnreadCount();
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -41,98 +45,121 @@ function UserTabs() {
         tabBarActiveTintColor:   COLORS.primary,
         tabBarInactiveTintColor: COLORS.textMuted,
         tabBarStyle: {
-          backgroundColor: COLORS.card,
-          borderTopColor:  COLORS.border,
-          borderTopWidth:  1,
-          height:          60,
-          paddingBottom:   6,
-          paddingTop:      6,
-          elevation:       8,
-          shadowColor:     "#6B5B45",
-          shadowOpacity:   0.08,
+          backgroundColor:      COLORS.card,
+          borderTopWidth:       0,
+          borderTopLeftRadius:  24,
+          borderTopRightRadius: 24,
+          height:               60 + insets.bottom,
+          paddingTop:           6,
+          paddingBottom:        Math.max(insets.bottom, 8),
+          elevation:            12,
+          shadowColor:          "#6B5B45",
+          shadowOpacity:        0.12,
+          shadowOffset:         { width: 0, height: -4 },
+          shadowRadius:         14,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
+        tabBarLabelStyle: { fontSize: 10.5, fontWeight: "700" },
         tabBarBadgeStyle: { backgroundColor: COLORS.accent, fontSize: 10, fontWeight: "800" },
-        tabBarIcon: ({ focused, color, size }) => {
+        tabBarIcon: ({ focused, color }) => {
           const icons = TAB_ICONS[route.name];
           if (!icons) return null;
           return (
-            <Ionicons
-              name={focused ? icons.focused : icons.blur}
-              size={size}
-              color={color}
-            />
+            <View
+              style={{
+                backgroundColor:   focused ? COLORS.primaryLight : "transparent",
+                borderRadius:      999,
+                paddingHorizontal: 16,
+                paddingVertical:   3,
+              }}
+            >
+              <Ionicons name={focused ? icons.focused : icons.blur} size={22} color={color} />
+            </View>
           );
         },
       })}
     >
-      <Tab.Screen name="Find Jobs" component={SwipeScreen} />
-      <Tab.Screen name="Matches"   component={UserMatchesScreen} />
+      <Tab.Screen name="Dashboard"    component={SwipeScreen} options={{ headerShown: false }} />
+      <Tab.Screen name="Applications" component={ApplicationsScreen} />
       <Tab.Screen
         name="Messages"
         component={UserMessagesScreen}
         options={unread > 0 ? { tabBarBadge: unread > 9 ? "9+" : unread } : {}}
       />
-      <Tab.Screen name="Profile"   component={UserProfileScreen} />
+      <Tab.Screen name="Profile" component={UserProfileScreen} />
     </Tab.Navigator>
   );
 }
 
+function UserStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="UserTabs" component={UserTabs} />
+      <Stack.Screen
+        name="Questionnaire"
+        component={QuestionnaireScreen}
+        options={{ presentation: "modal" }}
+      />
+    </Stack.Navigator>
+  );
+}
+
 export default function UserApp({ navigation }) {
-  const [newMatch, setNewMatch] = useState(null);
+  // ── Requirements gate ──────────────────────────────────────────────────────
+  const [ready, setReady] = React.useState(null);
 
-  // Listen for new_match events. The socket connects during login, but on a
-  // cold start it may not exist yet when this mounts — retry briefly until it does.
-  useEffect(() => {
-    let attached = null;
-    const handler = (payload) => setNewMatch(payload);
+  React.useEffect(() => {
+    let alive = true;
+    api.get("/auth/me")
+      .then(res => (res.ok ? res.json() : null))
+      .then(me => {
+        if (!alive) return;
+        setReady(me ? missingRequirements(me, "user").length === 0 : true);
+      })
+      .catch(() => alive && setReady(true));   // network issues never lock the app
+    return () => { alive = false; };
+  }, []);
 
+  // ── "It's a match!" moment ────────────────────────────────────────────────
+  const [matchEvent, setMatchEvent] = React.useState(null);
+
+  React.useEffect(() => {
+    let detach = null;
     const tryAttach = () => {
       const socket = getSocket();
       if (!socket) return false;
+      const handler = (payload) => setMatchEvent(payload);
       socket.on("new_match", handler);
-      attached = socket;
+      detach = () => socket.off("new_match", handler);
       return true;
     };
-
     if (!tryAttach()) {
-      const interval = setInterval(() => {
-        if (tryAttach()) clearInterval(interval);
-      }, 1000);
-      return () => {
-        clearInterval(interval);
-        attached?.off("new_match", handler);
-      };
+      const iv = setInterval(() => { if (tryAttach()) clearInterval(iv); }, 1500);
+      return () => { clearInterval(iv); detach?.(); };
     }
-    return () => attached?.off("new_match", handler);
+    return () => detach?.();
   }, []);
 
-  const openMatchChat = () => {
-    const m = newMatch;
-    setNewMatch(null);
-    if (m?.matchId) {
-      navigation.navigate("Chat", {
-        matchId:     m.matchId,
-        partnerName: m.business?.name ?? "Chat",
-      });
-    }
-  };
+  if (ready === null) return null;
+  if (ready === false) {
+    return <RequirementsScreen role="user" onComplete={() => setReady(true)} />;
+  }
 
   return (
     <>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="UserTabs" component={UserTabs} />
-        <Stack.Screen
-          name="Questionnaire"
-          component={QuestionnaireScreen}
-          options={{ presentation: "modal" }}
-        />
-      </Stack.Navigator>
-
+      <UserStack />
       <MatchModal
-        match={newMatch}
-        onMessage={openMatchChat}
-        onDismiss={() => setNewMatch(null)}
+        match={matchEvent}
+        onDismiss={() => setMatchEvent(null)}
+        onMessage={() => {
+          const ev = matchEvent;
+          setMatchEvent(null);
+          if (ev?.matchId) {
+            navigation.navigate("Chat", {
+              matchId:     ev.matchId,
+              partnerName: ev.business?.name ?? "Chat",
+            });
+          }
+        }}
       />
     </>
   );

@@ -17,6 +17,11 @@ const businessSchema = new mongoose.Schema(
     postcode:    { type: String, maxlength: 20 },
     description: { type: String, maxlength: 500 },
 
+    // ── Contact & company details ─────────────────────────────────────────────
+    phone_number: { type: String, maxlength: 20 },
+    website:      { type: String, maxlength: 255 },
+    industry:     { type: String, maxlength: 100 },
+
     avatar_path:   { type: String },
     expoPushToken: { type: String },            // Expo push notification token
 

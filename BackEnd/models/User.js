@@ -22,6 +22,24 @@ const userSchema = new mongoose.Schema(
     travel_distance:     { type: String, enum: ["5km", "10km", "25km", "any"] },
     industry_preference: { type: String, maxlength: 200 },
 
+    // ── Professional profile ──────────────────────────────────────────────────
+    bio:       { type: String, maxlength: 600 },
+    skills:    { type: [String], default: undefined },
+    languages: { type: [String], default: undefined },
+    education: { type: String, maxlength: 300 },
+    work_history: {
+      type: [
+        {
+          _id:      false,
+          title:    { type: String, required: true, maxlength: 150 },
+          company:  { type: String, maxlength: 150 },
+          years:    { type: String, maxlength: 50 },
+        },
+      ],
+      default: undefined,
+    },
+    cv_path: { type: String },
+
     // ── Lifestyle questionnaire (trait-based matching) ────────────────────────
     questionnaire_answers: { type: Object },   // { free_time: "a", sports: "c", ... }
     traits:                { type: Object },   // computed vector { energy: 0.8, ... }

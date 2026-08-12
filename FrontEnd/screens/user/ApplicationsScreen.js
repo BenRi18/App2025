@@ -1,114 +1,81 @@
-// FrontEnd/screens/user/ApplicationsScreen.js
-// Lists all right-swipes (applications) for the logged-in job seeker.
-// Shows live status badge and a "Chat" button when there's a match.
-import React, { useEffect, useState, useContext, useCallback } from "react";
+// FrontEnd/screens/user/ApplicationsScreen.js — the application tracker.
+// Every job the user applied to, with live status: in review / rejected /
+// accepted (matched — with a shortcut straight into the chat).
+import React, { useState, useCallback } from "react";
 import {
   View, FlatList, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, RefreshControl,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { AuthContext } from "../../context/AuthContext";
 import { api } from "../../services/api";
+import { timeAgo, getInitials } from "../../utils/format";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
-// ── Status badge config ─────────────────────────────────────────────────────
-const STATUS_CONFIG = {
-  applied:     { label: "Applied",     bg: COLORS.primaryLight,  text: COLORS.primary,  icon: "paper-plane-outline" },
-  viewed:      { label: "Viewed",      bg: COLORS.warningLight,  text: COLORS.warning,  icon: "eye-outline" },
-  shortlisted: { label: "Shortlisted", bg: COLORS.successLight,  text: COLORS.success,  icon: "star-outline" },
-  rejected:    { label: "Rejected",    bg: COLORS.dangerLight,   text: COLORS.danger,   icon: "close-circle-outline" },
-  hired:       { label: "Hired! 🎉",   bg: "#D1FAE5",            text: "#065F46",        icon: "checkmark-circle-outline" },
+const STATUS = {
+  in_review: { label: "In review", icon: "hourglass-outline",     bg: COLORS.infoLight,    fg: COLORS.info },
+  accepted:  { label: "Matched!",  icon: "heart",                 bg: COLORS.successLight, fg: COLORS.success },
+  rejected:  { label: "Not this time", icon: "close-circle-outline", bg: COLORS.border,    fg: COLORS.textMuted },
 };
 
-function StatusBadge({ status }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.applied;
-  return (
-    <View style={[styles.badge, { backgroundColor: cfg.bg }]}>
-      <Ionicons name={cfg.icon} size={12} color={cfg.text} />
-      <Text style={[styles.badgeText, { color: cfg.text }]}>{cfg.label}</Text>
-    </View>
-  );
-}
-
 export default function ApplicationsScreen({ navigation }) {
-  const [applications, setApplications] = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [refreshing,   setRefreshing]   = useState(false);
-  const { token }                       = useContext(AuthContext);
+  const [apps, setApps]             = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchApplications = useCallback(async (isRefresh = false) => {
+  const fetchApps = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     try {
-      const res  = await api.get("/swipes/user");
+      const res  = await api.get("/swipes/applications");
       const data = await res.json();
-      setApplications(Array.isArray(data) ? data : []);
+      setApps(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("ApplicationsScreen fetch error:", err);
+      console.warn("ApplicationsScreen fetch error:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { fetchApplications(); }, [fetchApplications]);
-
-  const openChat = (item) => {
-    // item.match_id is set by the backend when a match exists
-    navigation.navigate("Chat", {
-      matchId:     item.match_id,
-      partnerName: item.business_name,
-    });
-  };
+  useFocusEffect(useCallback(() => { fetchApps(); }, [fetchApps]));
 
   const renderItem = ({ item }) => {
-    const hasMatch = !!item.match_id;
+    const st = STATUS[item.status] ?? STATUS.in_review;
     return (
       <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {item.business_name?.charAt(0)?.toUpperCase() ?? "?"}
+        <View style={styles.cardTop}>
+          <View style={styles.monogram}>
+            <Text style={styles.monogramText}>{getInitials(item.business?.business_name)}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.jobTitle} numberOfLines={1}>
+              {item.job?.title ?? "General application"}
             </Text>
+            <Text style={styles.bizLine} numberOfLines={1}>
+              {item.business?.business_name}
+              {item.business?.city ? ` · ${item.business.city}` : ""}
+            </Text>
+            <Text style={styles.dateLine}>Applied {timeAgo(item.applied_at)}</Text>
           </View>
-          <View style={styles.headerText}>
-            <Text style={styles.businessName}>{item.business_name}</Text>
-            {item.owner_name ? (
-              <Text style={styles.ownerName}>{item.owner_name}</Text>
-            ) : null}
+          <View style={[styles.statusChip, { backgroundColor: st.bg }]}>
+            <Ionicons name={st.icon} size={12} color={st.fg} />
+            <Text style={[styles.statusText, { color: st.fg }]}>{st.label}</Text>
           </View>
-          <StatusBadge status={item.status} />
         </View>
 
-        {item.job_title ? (
-          <View style={styles.jobRow}>
-            <Ionicons name="briefcase-outline" size={13} color={COLORS.textSecondary} />
-            <Text style={styles.jobText}>{item.job_title}</Text>
-            {item.job_type ? (
-              <View style={styles.typeChip}>
-                <Text style={styles.typeChipText}>{item.job_type}</Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        <View style={styles.detailRow}>
-          <Ionicons name="location-outline" size={13} color={COLORS.textSecondary} />
-          <Text style={styles.detailText}>{item.street || "—"}</Text>
-        </View>
-
-        <View style={styles.cardFooter}>
-          <Text style={styles.date}>
-            {new Date(item.created_at).toLocaleDateString(undefined, {
-              year: "numeric", month: "short", day: "numeric",
+        {item.status === "accepted" && item.match_id ? (
+          <TouchableOpacity
+            style={styles.chatBtn}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate("Chat", {
+              matchId:     item.match_id,
+              partnerName: item.business?.business_name ?? "Chat",
             })}
-          </Text>
-          {hasMatch && (
-            <TouchableOpacity style={styles.chatBtn} onPress={() => openChat(item)}>
-              <Ionicons name="chatbubble-outline" size={14} color="#FFF" />
-              <Text style={styles.chatBtnText}>Chat</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={15} color="#FFF" />
+            <Text style={styles.chatBtnText}>Open chat</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     );
   };
@@ -117,31 +84,37 @@ export default function ApplicationsScreen({ navigation }) {
     return <ActivityIndicator size="large" color={COLORS.primary} style={styles.center} />;
   }
 
+  const reviewing = apps.filter(a => a.status === "in_review").length;
+
   return (
     <FlatList
-      data={applications}
-      keyExtractor={item => item.id?.toString() ?? Math.random().toString()}
+      data={apps}
+      keyExtractor={item => item.id}
       renderItem={renderItem}
       contentContainerStyle={styles.list}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => fetchApplications(true)}
-          tintColor={COLORS.primary}
-        />
+        <RefreshControl refreshing={refreshing} onRefresh={() => fetchApps(true)} tintColor={COLORS.primary} />
       }
       ListHeaderComponent={
-        applications.length > 0 ? (
+        apps.length > 0 ? (
           <Text style={styles.listHeader}>
-            {applications.length} application{applications.length !== 1 ? "s" : ""}
+            {apps.length} application{apps.length !== 1 ? "s" : ""}
+            {reviewing > 0 ? ` · ${reviewing} in review` : ""}
           </Text>
         ) : null
       }
       ListEmptyComponent={
         <View style={styles.empty}>
-          <Ionicons name="document-text-outline" size={64} color={COLORS.textMuted} />
-          <Text style={styles.emptyTitle}>No Applications Yet</Text>
-          <Text style={styles.emptySub}>Swipe right on a business to apply!</Text>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="paper-plane-outline" size={38} color={COLORS.primary} />
+          </View>
+          <Text style={styles.emptyTitle}>No applications yet</Text>
+          <Text style={styles.emptySub}>
+            Jobs you apply to will show up here, along with what the business decided.
+          </Text>
+          <TouchableOpacity style={styles.emptyBtn} onPress={() => navigation.navigate("Dashboard")}>
+            <Text style={styles.emptyBtnText}>Find Jobs</Text>
+          </TouchableOpacity>
         </View>
       }
     />
@@ -150,81 +123,64 @@ export default function ApplicationsScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   center: { flex: 1 },
-  list:   { padding: SPACING.md, flexGrow: 1, backgroundColor: COLORS.background },
-  listHeader: {
-    fontSize:     13,
-    color:        COLORS.textSecondary,
-    fontWeight:   "600",
-    marginBottom: SPACING.sm,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
+  list:   { flexGrow: 1, padding: SPACING.md, backgroundColor: COLORS.background },
+
+  listHeader: { fontSize: 13, fontWeight: "700", color: COLORS.textSecondary, marginBottom: SPACING.sm },
 
   card: {
     backgroundColor: COLORS.card,
-    borderRadius:    RADIUS.md,
+    borderRadius:    RADIUS.lg,
     padding:         SPACING.md,
-    marginBottom:    SPACING.md,
-    ...SHADOWS.md,
+    marginBottom:    SPACING.sm + 4,
+    ...SHADOWS.sm,
   },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems:    "center",
-    marginBottom:  SPACING.sm,
-  },
-  avatar: {
-    width:           40,
-    height:          40,
-    borderRadius:    20,
-    backgroundColor: COLORS.primaryLight,
-    alignItems:      "center",
-    justifyContent:  "center",
-    marginRight:     SPACING.sm,
-  },
-  avatarText:   { color: COLORS.primary, fontSize: 16, fontWeight: "700" },
-  headerText:   { flex: 1 },
-  businessName: { fontSize: 16, fontWeight: "700", color: COLORS.textPrimary },
-  ownerName:    { fontSize: 13, color: COLORS.textSecondary, marginTop: 1 },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
 
-  badge: {
+  monogram: {
+    width: 46, height: 46, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  monogramText: { color: "#FFF", fontSize: 16, fontWeight: "800" },
+
+  jobTitle: { fontSize: 15.5, fontWeight: "800", color: COLORS.textPrimary },
+  bizLine:  { fontSize: 13, color: COLORS.textSecondary, marginTop: 1 },
+  dateLine: { fontSize: 11.5, color: COLORS.textMuted, marginTop: 2 },
+
+  statusChip: {
     flexDirection:     "row",
     alignItems:        "center",
     gap:               4,
     borderRadius:      RADIUS.full,
-    paddingHorizontal: 8,
-    paddingVertical:   4,
+    paddingHorizontal: 9,
+    paddingVertical:   5,
   },
-  badgeText: { fontSize: 11, fontWeight: "700" },
+  statusText: { fontSize: 11.5, fontWeight: "800" },
 
-  jobRow: {
-    flexDirection: "row",
-    alignItems:    "center",
-    gap:           6,
-    marginBottom:  4,
+  chatBtn: {
+    flexDirection:   "row",
+    alignItems:      "center",
+    justifyContent:  "center",
+    gap:             7,
+    backgroundColor: COLORS.accent,
+    borderRadius:    RADIUS.sm,
+    paddingVertical: 10,
+    marginTop:       SPACING.md,
   },
-  jobText:      { fontSize: 13, color: COLORS.textPrimary, fontWeight: "600", flex: 1 },
-  typeChip:     { backgroundColor: COLORS.primaryLight, borderRadius: RADIUS.full, paddingHorizontal: 6, paddingVertical: 2 },
-  typeChipText: { fontSize: 11, color: COLORS.primary, fontWeight: "600" },
+  chatBtnText: { color: "#FFF", fontSize: 13.5, fontWeight: "700" },
 
-  detailRow: {
-    flexDirection: "row",
-    alignItems:    "center",
-    gap:           6,
-    marginTop:     2,
+  empty:     { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: SPACING.xl, paddingTop: 60 },
+  emptyIcon: {
+    width: 80, height: 80, borderRadius: 40,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: SPACING.md,
   },
-  detailText: { fontSize: 13, color: COLORS.textSecondary, flex: 1 },
-
-  cardFooter: {
-    flexDirection:  "row",
-    alignItems:     "center",
-    justifyContent: "space-between",
-    marginTop:      SPACING.sm,
+  emptyTitle: { fontSize: 19, fontWeight: "900", letterSpacing: -0.3, color: COLORS.textPrimary },
+  emptySub:   { fontSize: 14, color: COLORS.textSecondary, marginTop: SPACING.sm, textAlign: "center", lineHeight: 21 },
+  emptyBtn: {
+    backgroundColor: COLORS.primary, borderRadius: RADIUS.full,
+    paddingHorizontal: 26, paddingVertical: 11, marginTop: SPACING.lg,
   },
-  date:        { fontSize: 12, color: COLORS.textMuted },
-  chatBtn:     { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: COLORS.primary, borderRadius: RADIUS.full, paddingHorizontal: 12, paddingVertical: 6 },
-  chatBtnText: { color: "#FFF", fontSize: 13, fontWeight: "600" },
-
-  empty:      { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 80 },
-  emptyTitle: { fontSize: 18, fontWeight: "700", color: COLORS.textPrimary, marginTop: SPACING.md },
-  emptySub:   { fontSize: 14, color: COLORS.textSecondary, marginTop: SPACING.sm },
+  emptyBtnText: { color: "#FFF", fontSize: 14, fontWeight: "700" },
 });

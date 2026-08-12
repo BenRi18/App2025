@@ -6,6 +6,8 @@ const matchSchema = new mongoose.Schema(
   {
     user_id:     { type: mongoose.Schema.Types.ObjectId, ref: "User",     required: true },
     business_id: { type: mongoose.Schema.Types.ObjectId, ref: "Business", required: true },
+    // Optional — the job listing this match was made for.
+    job_id:      { type: mongoose.Schema.Types.ObjectId, ref: "JobListing" },
 
     // Chat convenience fields — updated on each message
     last_message:    { type: String },
@@ -17,7 +19,7 @@ const matchSchema = new mongoose.Schema(
 );
 
 // A user can only match with a business once
-matchSchema.index({ user_id: 1, business_id: 1 }, { unique: true });
+matchSchema.index({ user_id: 1, business_id: 1, job_id: 1 }, { unique: true });
 
 matchSchema.set("toJSON", {
   virtuals: true,

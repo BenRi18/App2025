@@ -6,13 +6,15 @@ import {
   TouchableOpacity, ScrollView, Alert, Image,
 } from "react-native";
 import { Ionicons }    from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
+import { Platform } from "react-native";
 import { AuthContext } from "../../context/AuthContext";
-import { api }         from "../../services/api";
+import { api, API_URL } from "../../services/api";
 import { getInitials, avatarUrl } from "../../utils/format";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 export default function UserProfileScreen({ navigation }) {
-  const { user, setUser, logout, loading: authLoading } = useContext(AuthContext);
+  const { user, setUser, logout, token, loading: authLoading } = useContext(AuthContext);
   const [pageLoading, setPageLoading] = React.useState(!user);
   const [error,       setError]       = React.useState(null);
 
@@ -26,6 +28,62 @@ export default function UserProfileScreen({ navigation }) {
       .then(data => { setUser(data); setPageLoading(false); })
       .catch(err  => { setError(err.message); setPageLoading(false); });
   }, []);
+
+  const uploadCV = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
+    if (result.canceled || !result.assets?.length) return;
+    const uri = result.assets[0].uri;
+    const formData = new FormData();
+    formData.append("cv", {
+      uri: Platform.OS === "ios" ? uri.replace("file://", "") : uri,
+      type: "application/pdf",
+      name: "cv.pdf",
+    });
+    try {
+      const res = await fetch(`${API_URL}/auth/me/cv`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
+        },
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUser({ ...user, cv_path: data.cv_path });
+        Alert.alert("CV saved", "Your CV is stored and used for every application.");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        Alert.alert("Upload failed", data.error ?? "Couldn't save your CV.");
+      }
+    } catch {
+      Alert.alert("Network problem", "Couldn't reach the server.");
+    }
+  };
+
+  const removeCV = async () => {
+    try {
+      const res = await api.delete("/auth/me/cv");
+      if (res.ok) {
+        setUser({ ...user, cv_path: null });
+        Alert.alert("CV removed", "Add a new CV before your next application.");
+      }
+    } catch {
+      Alert.alert("Network problem", "Couldn't reach the server.");
+    }
+  };
+
+  const handleCV = () => {
+    if (user?.cv_path) {
+      Alert.alert("My CV", "You have a CV on file.", [
+        { text: "Replace", onPress: uploadCV },
+        { text: "Remove", style: "destructive", onPress: removeCV },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    } else {
+      uploadCV();
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
@@ -149,6 +207,20 @@ export default function UserProfileScreen({ navigation }) {
         >
           <Ionicons name="create-outline" size={18} color={COLORS.primary} />
           <Text style={styles.actionBtnText}>Edit Profile</Text>
+          <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} style={{ marginLeft: "auto" }} />
+        </TouchableOpacity>
+
+        <View style={styles.actionDivider} />
+
+        <TouchableOpacity style={styles.actionBtn} onPress={handleCV}>
+          <Ionicons
+            name={user?.cv_path ? "document-text" : "document-attach-outline"}
+            size={18}
+            color={COLORS.primary}
+          />
+          <Text style={styles.actionBtnText}>
+            {user?.cv_path ? "My CV — on file" : "Add My CV"}
+          </Text>
           <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} style={{ marginLeft: "auto" }} />
         </TouchableOpacity>
 

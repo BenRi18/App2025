@@ -2,6 +2,8 @@
 import express from "express";
 
 import Swipe    from "../models/Swipe.js";
+import JobListing       from "../models/JobListing.js";
+import BusinessDecision from "../models/BusinessDecision.js";
 import CV       from "../models/CV.js";
 import Match    from "../models/Match.js";
 import User     from "../models/User.js";
@@ -74,25 +76,49 @@ router.post("/right", authMiddleware, uploadCV.single("cv"), async (req, res, ne
       return res.status(403).json({ error: "Only users can swipe" });
     }
 
-    const { businessId } = req.body;
+    const { businessId, jobId } = req.body;
     const cvFile = req.file;
 
-    if (!businessId || !cvFile) {
-      return res.status(400).json({ error: "Business ID and CV are required" });
+    if (!businessId) {
+      return res.status(400).json({ error: "Business ID is required" });
     }
 
-    const existing = await Swipe.findOne({ user_id: req.user.id, business_id: businessId });
+    // If a job is specified, it must exist, belong to this business, and be active
+    if (jobId) {
+      const job = await JobListing.findOne({ _id: jobId, business_id: businessId, is_active: true });
+      if (!job) {
+        return res.status(400).json({ error: "Job listing not found for this business" });
+      }
+    }
+
+    // CV: a freshly uploaded file, or the one stored on the user's profile
+    const me = await User.findById(req.user.id).select("cv_path");
+    let stored = cvFile ? filePath(cvFile) : (me?.cv_path ?? null);
+    if (!stored) {
+      return res.status(400).json({ error: "No CV on file — add your CV before applying" });
+    }
+    // A fresh upload becomes the stored default if none exists yet
+    if (cvFile && !me?.cv_path) {
+      await User.updateOne({ _id: req.user.id }, { cv_path: stored });
+    }
+
+    // One application per business+job combination
+    const existing = await Swipe.findOne({
+      user_id:     req.user.id,
+      business_id: businessId,
+      job_id:      jobId ?? null,
+    });
     if (existing) {
-      return res.status(400).json({ error: "You already swiped on this business" });
+      return res.status(400).json({ error: "You already applied to this job" });
     }
 
     const swipe = await Swipe.create({
       user_id:     req.user.id,
       business_id: businessId,
+      job_id:      jobId || undefined,
       direction:   "right",
+      status:      "applied",
     });
-
-    const stored = filePath(cvFile);  // S3 URL or local disk path
 
     await CV.create({
       user_id:     req.user.id,
@@ -107,6 +133,61 @@ router.post("/right", authMiddleware, uploadCV.single("cv"), async (req, res, ne
       cvPath:  stored,
     });
 
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /swipes/applications ─────────────────────────────────────────────────
+// The user's application tracker: every job they applied to, with the current
+// status derived from the business's side of the funnel:
+//   accepted  → a match exists (business liked back) — includes match_id
+//   rejected  → the business passed on this application
+//   in_review → no decision yet
+router.get("/applications", authMiddleware, async (req, res, next) => {
+  try {
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users have applications" });
+    }
+
+    const [swipes, decisions, matches] = await Promise.all([
+      Swipe.find({ user_id: req.user.id, direction: "right" })
+        .populate("job_id", "job_title job_type")
+        .populate("business_id", "business_name avatar_path city")
+        .sort({ createdAt: -1 }),
+      BusinessDecision.find({ user_id: req.user.id }).select("business_id job_id decision"),
+      Match.find({ user_id: req.user.id }).select("business_id job_id"),
+    ]);
+
+    const key = (biz, job) => `${biz}:${job ?? "null"}`;
+    const decisionMap = new Map(decisions.map(d => [key(d.business_id, d.job_id), d.decision]));
+    const matchMap    = new Map(matches.map(m => [key(m.business_id, m.job_id), m._id.toString()]));
+
+    const applications = swipes
+      .filter(s => s.business_id)
+      .map(s => {
+        const k        = key(s.business_id._id, s.job_id?._id);
+        const matchId  = matchMap.get(k);
+        const decision = decisionMap.get(k);
+        const status   = matchId ? "accepted" : decision === "pass" ? "rejected" : "in_review";
+        return {
+          id:         s._id.toString(),
+          applied_at: s.createdAt,
+          status,
+          match_id:   matchId ?? null,
+          job: s.job_id
+            ? { id: s.job_id._id.toString(), title: s.job_id.job_title, type: s.job_id.job_type }
+            : null,
+          business: {
+            id:            s.business_id._id.toString(),
+            business_name: s.business_id.business_name,
+            avatar_path:   s.business_id.avatar_path ?? null,
+            city:          s.business_id.city ?? null,
+          },
+        };
+      });
+
+    res.json(applications);
   } catch (err) {
     next(err);
   }

@@ -12,7 +12,8 @@ import JobListing    from "../models/JobListing.js";
 import RefreshToken  from "../models/RefreshToken.js";
 import authMiddleware        from "../middleware/auth.js";
 import { makeRateLimiter }  from "../middleware/rateLimiter.js";
-import { uploadAvatar, filePath } from "../middleware/upload.js";
+import fs from "fs";
+import { uploadAvatar, uploadCV, filePath } from "../middleware/upload.js";
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -723,5 +724,50 @@ router.post(
     }
   }
 );
+
+
+// ─── POST /auth/me/cv ─────────────────────────────────────────────────────────
+// Store (or replace) the user's default CV. Uploaded once, used for every
+// application until replaced or removed.
+router.post("/me/cv", authMiddleware, uploadCV.single("cv"), async (req, res, next) => {
+  try {
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users have a CV" });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: "CV file is required" });
+    }
+
+    const me = await User.findById(req.user.id).select("cv_path");
+    const stored = filePath(req.file);
+
+    // Best-effort cleanup of the previous file
+    if (me?.cv_path && me.cv_path !== stored) {
+      fs.promises.unlink(me.cv_path).catch(() => {});
+    }
+
+    await User.updateOne({ _id: req.user.id }, { cv_path: stored });
+    res.json({ cv_path: stored });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── DELETE /auth/me/cv ───────────────────────────────────────────────────────
+router.delete("/me/cv", authMiddleware, async (req, res, next) => {
+  try {
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users have a CV" });
+    }
+    const me = await User.findById(req.user.id).select("cv_path");
+    if (me?.cv_path) {
+      fs.promises.unlink(me.cv_path).catch(() => {});
+      await User.updateOne({ _id: req.user.id }, { $unset: { cv_path: 1 } });
+    }
+    res.json({ deleted: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;
