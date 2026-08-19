@@ -53,7 +53,7 @@ export function computeUserTraits(answers) {
  * @param {string|Object} archetype  archetype key or a raw traits object
  * @returns {number} 0–1 (0.5 neutral when data is missing)
  */
-export function traitCompatibility(userTraits, archetype) {
+export function traitCompatibility(userTraits, archetype, importance = null) {
   if (!userTraits) return 0.5;                       // user skipped the quiz
 
   const jobTraits =
@@ -86,8 +86,12 @@ export function traitCompatibility(userTraits, archetype) {
       closeness = Math.pow(1 - (jobValue - userValue), 2);
     }
 
-    weighted     += closeness * jobValue;            // job's value = its importance
-    totalWeight  += jobValue;
+    // Base weight is the job's required level; an importance multiplier lets a
+    // business-answered trait (esp. their declared priority) count for more.
+    const imp    = importance?.[trait] ?? 1;
+    const weight = jobValue * imp;
+    weighted     += closeness * weight;
+    totalWeight  += weight;
   }
 
   if (totalWeight === 0) return 0.5;
@@ -126,4 +130,22 @@ export function inferArchetype(jobListing) {
     if (words.some((w) => text.includes(w))) return key;
   }
   return null;
+}
+
+/**
+ * Effective trait target for a listing: the archetype defaults with the
+ * business's per-listing answers merged OVER them, plus an importance map.
+ * Returns { traits, importance } ready for traitCompatibility.
+ */
+export function resolveListingTarget(jobListing, roleProfile) {
+  const archKey  = inferArchetype(jobListing);
+  const base     = (archKey && JOB_ARCHETYPES[archKey]?.traits) || {};
+  const traits   = { ...base };
+  let importance = null;
+
+  if (roleProfile?.target && Object.keys(roleProfile.target).length) {
+    Object.assign(traits, roleProfile.target);       // answers override defaults
+    importance = roleProfile.importance ?? null;
+  }
+  return { traits, importance };
 }

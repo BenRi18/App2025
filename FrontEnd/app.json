@@ -3,36 +3,50 @@
     "name": "JobSwipe",
     "slug": "jobswipe",
     "version": "1.0.0",
-    "scheme": "myapp",
+    "scheme": "jobswipe",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#F8FAFC"
+      "backgroundColor": "#FAF6F0"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.yourcompany.jobswipe"
+      "bundleIdentifier": "com.benri.jobswipe",
+      "buildNumber": "1.0.0",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "JobSwipe uses your location to show jobs near you and to notify you about nearby roles that match your personality profile.",
+        "NSPhotoLibraryUsageDescription": "JobSwipe needs access to your photos so you can set a profile picture.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#F8FAFC"
+        "backgroundColor": "#0B6E72"
       },
-      "package": "com.yourcompany.jobswipe",
+      "package": "com.benri.jobswipe",
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
           "data": [
             {
-              "scheme": "myapp"
+              "scheme": "jobswipe"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
+      ],
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -43,8 +57,14 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#2563EB",
+          "color": "#0B6E72",
           "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "JobSwipe uses your location to show jobs near you and notify you about nearby matches."
         }
       ]
     ],

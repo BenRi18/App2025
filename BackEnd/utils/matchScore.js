@@ -9,7 +9,8 @@
 //
 // Pure functions, no DB access → easy to unit-test.
 
-import { traitCompatibility, inferArchetype } from "./traitMatch.js";
+import { traitCompatibility, inferArchetype, resolveListingTarget } from "./traitMatch.js";
+import { buildRoleProfile } from "../config/listingQuestions.js";
 
 // ─── Weights (tweak freely, must sum to 100) ─────────────────────────────────
 const WEIGHTS = {
@@ -102,7 +103,7 @@ function industryScore(user, business, job) {
 
 // Lanzarote town coordinates — covers every settlement that realistically
 // appears in a location field. Small island, hardcoding beats a geocoding API.
-const LANZAROTE_TOWNS = {
+export const LANZAROTE_TOWNS = {
   "arrecife":            [28.963, -13.548],
   "puerto del carmen":   [28.921, -13.663],
   "costa teguise":       [29.005, -13.505],
@@ -135,7 +136,7 @@ const LANZAROTE_TOWNS = {
 };
 
 /** Find town coords inside a free-text location string. */
-function findTown(text) {
+export function findTown(text) {
   if (!text) return null;
   // longest names first so "puerto del carmen" wins over "carmen"-less matches
   for (const town of Object.keys(LANZAROTE_TOWNS).sort((a, b) => b.length - a.length)) {
@@ -145,7 +146,7 @@ function findTown(text) {
 }
 
 /** Great-circle distance in km. */
-function haversineKm([lat1, lon1], [lat2, lon2]) {
+export function haversineKm([lat1, lon1], [lat2, lon2]) {
   const R = 6371, rad = Math.PI / 180;
   const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
   const a = Math.sin(dLat / 2) ** 2 +
@@ -154,43 +155,45 @@ function haversineKm([lat1, lon1], [lat2, lon2]) {
 }
 
 /** travel_distance enum → km limit. */
-const TRAVEL_LIMITS = { "5km": 5, "10km": 10, "25km": 25, "any": Infinity };
+export const TRAVEL_LIMITS = { "5km": 5, "10km": 10, "25km": 25, "any": Infinity };
 
 /**
  * Distance-aware location score. Falls back to string matching when a town
  * isn't recognized. Within the user's travel limit scores decay gently with
  * distance; beyond it, sharply — but never to a hard zero on-island.
  */
-function locationScore(user, business) {
+function locationScore(user, business, jobListing, liveCoords) {
   const userLoc = norm(user?.location);
   const bizCity = norm(business?.city);
 
-  if (!userLoc || !bizCity) return 0.4;      // unknown → mild penalty, not zero
+  // Best available target: the job's precise coordinates, else the town
+  const jobLoc  = jobListing?.location;
+  const target  = (jobLoc?.lat != null && jobLoc?.lng != null)
+    ? [jobLoc.lat, jobLoc.lng]
+    : findTown(bizCity);
 
-  if (userLoc === bizCity)          return 1.0;
-  if (userLoc.includes(bizCity) ||
-      bizCity.includes(userLoc))    return 0.95;
+  // Best available origin: the device's live position, else the profile town
+  const origin = liveCoords ?? findTown(userLoc);
 
-  const from = findTown(userLoc);
-  const to   = findTown(bizCity);
-
-  if (from && to) {
-    const km    = haversineKm(from, to);
+  if (origin && target) {
+    const km    = haversineKm(origin, target);
     const limit = TRAVEL_LIMITS[norm(user?.travel_distance)] ?? 15;
 
+    let score;
     if (km <= limit) {
-      // Inside the limit: 1.0 next door, gently down to 0.7 at the limit
-      return limit === Infinity
-        ? Math.max(0.7, 1 - km / 60)
-        : 1 - 0.3 * (km / limit);
+      score = limit === Infinity ? Math.max(0.7, 1 - km / 60) : 1 - 0.3 * (km / limit);
+    } else {
+      score = Math.max(0.05, 0.6 - 0.04 * (km - limit));
     }
-    // Beyond the limit: sharp decay, floor of 0.05 (it's still one island)
-    return Math.max(0.05, 0.6 - 0.04 * (km - limit));
+    return { score, km: Math.round(km * 10) / 10 };
   }
 
-  // Towns unrecognized → old behavior
-  if (norm(user?.travel_distance) === "any") return 0.6;
-  return 0.0;
+  // String fallbacks (no coordinates known on one side)
+  if (!userLoc || !bizCity)                          return { score: 0.4, km: null };
+  if (userLoc === bizCity)                           return { score: 1.0, km: null };
+  if (userLoc.includes(bizCity) || bizCity.includes(userLoc)) return { score: 0.95, km: null };
+  if (norm(user?.travel_distance) === "any")         return { score: 0.6, km: null };
+  return { score: 0.0, km: null };
 }
 
 /** Newer listings score higher — exponential decay, half-life ≈ 30 days. */
@@ -209,17 +212,21 @@ function freshnessScore(job, business) {
  * Score a single business (with its newest active job listing) for a user.
  * @returns {{ total: number, breakdown: Object }} total is 0–100 (rounded)
  */
-export function scoreBusinessForUser(user, business, jobListing) {
+export function scoreBusinessForUser(user, business, jobListing, liveCoords) {
   const parts = {
-    traits:    traitCompatibility(
-                 user?.traits,
-                 inferArchetype(jobListing)
-               ),
+    traits:    (() => {
+                 const rp = jobListing?.role_answers?.length
+                   ? buildRoleProfile(jobListing.role_answers)
+                   : null;
+                 const { traits: tgt, importance } = resolveListingTarget(jobListing, rp);
+                 return traitCompatibility(user?.traits, tgt, importance);
+               })(),
     jobType:   jobTypeScore(user, jobListing),
     industry:  industryScore(user, business, jobListing),
-    location:  locationScore(user, business),
     freshness: freshnessScore(jobListing, business),
   };
+  const loc = locationScore(user, business, jobListing, liveCoords);
+  parts.location = loc.score;
 
   let total = 0;
   const breakdown = {};
@@ -228,6 +235,7 @@ export function scoreBusinessForUser(user, business, jobListing) {
     breakdown[key] = Math.round(pts);
     total += pts;
   }
+  breakdown.distance_km = loc.km;   // null when no coordinates are known
 
   return { total: Math.round(total), breakdown };
 }
@@ -242,7 +250,7 @@ export function scoreBusinessForUser(user, business, jobListing) {
  * @param {Array}    businesses  plain objects, each may carry `job_listing`
  * @returns {Array} same objects, scored and sorted (desc)
  */
-export function rankBusinessesForUser(user, businesses) {
+export function rankBusinessesForUser(user, businesses, liveCoords) {
   const jitter = (id) => {
     // cheap deterministic hash → -2..+2
     const s = String(id);
@@ -253,7 +261,7 @@ export function rankBusinessesForUser(user, businesses) {
 
   return businesses
     .map((b) => {
-      const { total, breakdown } = scoreBusinessForUser(user, b, b.job_listing);
+      const { total, breakdown } = scoreBusinessForUser(user, b, b.job_listing, liveCoords);
       return { ...b, match_score: total, match_breakdown: breakdown };
     })
     .sort((a, b) =>

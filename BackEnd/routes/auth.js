@@ -13,7 +13,12 @@ import RefreshToken  from "../models/RefreshToken.js";
 import authMiddleware        from "../middleware/auth.js";
 import { makeRateLimiter }  from "../middleware/rateLimiter.js";
 import fs from "fs";
-import { uploadAvatar, uploadCV, filePath } from "../middleware/upload.js";
+import { uploadAvatar, uploadCV, filePath, deleteFile } from "../middleware/upload.js";
+import Match            from "../models/Match.js";
+import Message          from "../models/Message.js";
+import Swipe            from "../models/Swipe.js";
+import BusinessDecision from "../models/BusinessDecision.js";
+import CV               from "../models/CV.js";
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -743,7 +748,7 @@ router.post("/me/cv", authMiddleware, uploadCV.single("cv"), async (req, res, ne
 
     // Best-effort cleanup of the previous file
     if (me?.cv_path && me.cv_path !== stored) {
-      fs.promises.unlink(me.cv_path).catch(() => {});
+      deleteFile(me.cv_path);
     }
 
     await User.updateOne({ _id: req.user.id }, { cv_path: stored });
@@ -761,7 +766,7 @@ router.delete("/me/cv", authMiddleware, async (req, res, next) => {
     }
     const me = await User.findById(req.user.id).select("cv_path");
     if (me?.cv_path) {
-      fs.promises.unlink(me.cv_path).catch(() => {});
+      deleteFile(me.cv_path);
       await User.updateOne({ _id: req.user.id }, { $unset: { cv_path: 1 } });
     }
     res.json({ deleted: true });
@@ -769,5 +774,86 @@ router.delete("/me/cv", authMiddleware, async (req, res, next) => {
     next(err);
   }
 });
+
+
+// ─── PUT /auth/me/location ────────────────────────────────────────────────────
+// Pin the account's coordinates (captured on-device — works worldwide).
+// Businesses: premises location, inherited by job listings without their own.
+router.put("/me/location", authMiddleware, async (req, res, next) => {
+  try {
+    const lat = Number(req.body.lat), lng = Number(req.body.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
+        lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ error: "Valid lat and lng are required" });
+    }
+    const label = typeof req.body.label === "string" ? req.body.label.slice(0, 150) : undefined;
+
+    const Model = req.user.role === "business" ? Business : User;
+    const field = req.user.role === "business"
+      ? { location: { lat, lng, label } }
+      : { last_location: { lat, lng, at: new Date() } };
+
+    await Model.updateOne({ _id: req.user.id }, field);
+    res.json({ pinned: true, lat, lng, label: label ?? null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+// ─── DELETE /auth/me ──────────────────────────────────────────────────────────
+// Permanent account deletion (GDPR erasure + App Store requirement).
+// Removes the account and everything attached: matches and their messages,
+// swipes, decisions, CV records and stored files, avatar, refresh tokens,
+// and — for businesses — every job listing they posted.
+// Requires the current password in the body as confirmation.
+router.delete(
+  "/me",
+  authMiddleware,
+  [body("password").notEmpty().withMessage("Password confirmation is required")],
+  async (req, res, next) => {
+    try {
+      if (!validate(req, res)) return;
+
+      const { role, id } = req.user;
+      const Model = role === "user" ? User : Business;
+
+      const account = await Model.findById(id).select("+password");
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
+      const ok = await bcrypt.compare(req.body.password, account.password);
+      if (!ok) return res.status(401).json({ error: "Incorrect password" });
+
+      const key = role === "user" ? "user_id" : "business_id";
+
+      // Messages hang off matches — collect those ids first
+      const matchIds = (await Match.find({ [key]: id }).select("_id")).map(m => m._id);
+
+      // Remove stored files (works for both S3/R2 and local disk)
+      const cvs = await CV.find({ [key]: id }).select("path");
+      await Promise.all(cvs.map(c => deleteFile(c.path)));
+      if (role === "user" && account.cv_path) await deleteFile(account.cv_path);
+      if (account.avatar_path) await deleteFile(account.avatar_path);
+
+      await Promise.all([
+        Message.deleteMany({ match_id: { $in: matchIds } }),
+        Match.deleteMany({ [key]: id }),
+        Swipe.deleteMany({ [key]: id }),
+        BusinessDecision.deleteMany({ [key]: id }),
+        CV.deleteMany({ [key]: id }),
+        RefreshToken.deleteMany({ user_id: id }),
+        role === "business"
+          ? JobListing.deleteMany({ business_id: id })
+          : Promise.resolve(),
+      ]);
+
+      await Model.findByIdAndDelete(id);
+      console.log(`🗑️  Account deleted: ${role} ${id} (${matchIds.length} matches, ${cvs.length} CVs)`);
+      res.json({ deleted: true });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export default router;

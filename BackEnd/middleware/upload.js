@@ -12,7 +12,7 @@
 
 import multer           from "multer";
 import multerS3         from "multer-s3";
-import { S3Client }     from "@aws-sdk/client-s3";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import path             from "path";
 import fs               from "fs";
 
@@ -99,4 +99,28 @@ export const uploadCV = multer({
 // Disk: file.path      → relative path     (e.g. uploads/avatars/...)
 export function filePath(file) {
   return file.location ?? file.path;
+}
+
+/**
+ * Delete a stored file, whichever backend holds it. Best-effort: a missing
+ * file is not an error. Accepts the same string filePath() returned —
+ * an S3/R2 URL or a local disk path.
+ */
+export async function deleteFile(stored) {
+  if (!stored) return;
+  try {
+    if (useS3 && /^https?:\/\//.test(stored)) {
+      // Key is everything after the bucket host
+      const key = new URL(stored).pathname.replace(/^\/+/, "")
+        .replace(new RegExp(`^${process.env.S3_BUCKET}/`), "");
+      await s3.send(new DeleteObjectCommand({
+        Bucket: process.env.S3_BUCKET,
+        Key:    decodeURIComponent(key),
+      }));
+    } else {
+      await fs.promises.unlink(stored);
+    }
+  } catch {
+    // Already gone, or storage hiccup — never block the caller
+  }
 }

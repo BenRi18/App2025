@@ -1,3 +1,15 @@
 node_modules/
 .env
 *.env
+
+# Environment secrets — never commit
+.env
+.env.local
+BackEnd/.env
+
+# Uploads (local dev only)
+BackEnd/uploads/
+
+# Expo / EAS
+FrontEnd/.expo/
+node_modules/

@@ -6,9 +6,11 @@ import {
   TouchableOpacity, ScrollView, Alert, Image,
 } from "react-native";
 import { Ionicons }    from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { AuthContext } from "../../context/AuthContext";
 import { api }         from "../../services/api";
 import { getInitials, avatarUrl } from "../../utils/format";
+import DeleteAccountModal from "../../components/DeleteAccountModal";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 export default function BusinessProfileScreen({ navigation }) {
@@ -26,6 +28,41 @@ export default function BusinessProfileScreen({ navigation }) {
       .then(data => { setUser(data); setPageLoading(false); })
       .catch(err  => { setError(err.message); setPageLoading(false); });
   }, []);
+
+  const pinLocation = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Location access is required to pin your premises.");
+      return;
+    }
+    try {
+      const pos = await Location.getCurrentPositionAsync({});
+      let label = "";
+      try {
+        const places = await Location.reverseGeocodeAsync(pos.coords);
+        const pl = places?.[0];
+        if (pl) label = [pl.street, pl.city].filter(Boolean).join(", ");
+      } catch {}
+      const res = await api.put("/auth/me/location", {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        label,
+      });
+      if (res.ok) {
+        setUser({ ...user, location: { lat: pos.coords.latitude, lng: pos.coords.longitude, label } });
+        Alert.alert("Location pinned", label
+          ? `Your premises are pinned at ${label}. New job listings will use this automatically.`
+          : "Your premises are pinned. New job listings will use this automatically.");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        Alert.alert("Couldn't pin location", data.error ?? "Please try again.");
+      }
+    } catch {
+      Alert.alert("Location error", "Couldn't read your position. Try again or check GPS.");
+    }
+  };
+
+  const [showDelete, setShowDelete] = React.useState(false);
 
   const handleLogout = () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
@@ -104,6 +141,20 @@ export default function BusinessProfileScreen({ navigation }) {
 
       {/* Action buttons */}
       <View style={styles.actions}>
+        <TouchableOpacity style={styles.actionBtn} onPress={pinLocation}>
+          <Ionicons
+            name={user?.location?.lat != null ? "location" : "locate-outline"}
+            size={18}
+            color={COLORS.primary}
+          />
+          <Text style={styles.actionBtnText}>
+            {user?.location?.lat != null ? "Business Location — pinned" : "Pin Business Location"}
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} style={{ marginLeft: "auto" }} />
+        </TouchableOpacity>
+
+        <View style={styles.actionDivider} />
+
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={() => navigation.navigate("EditProfile")}
@@ -130,6 +181,17 @@ export default function BusinessProfileScreen({ navigation }) {
         <Ionicons name="log-out-outline" size={20} color="#FFF" />
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
+
+      {/* Permanent account deletion (required by the app stores) */}
+      <TouchableOpacity style={styles.deleteAccountBtn} onPress={() => setShowDelete(true)}>
+        <Text style={styles.deleteAccountText}>Delete my account</Text>
+      </TouchableOpacity>
+
+      <DeleteAccountModal
+        visible={showDelete}
+        onClose={() => setShowDelete(false)}
+        role="business"
+      />
     </ScrollView>
   );
 }
@@ -245,4 +307,6 @@ const styles = StyleSheet.create({
     ...SHADOWS.sm,
   },
   logoutText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
+  deleteAccountBtn:  { marginTop: SPACING.md, paddingVertical: 10 },
+  deleteAccountText: { color: COLORS.danger, fontSize: 13.5, fontWeight: "600", textDecorationLine: "underline" },
 });

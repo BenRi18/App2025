@@ -4,7 +4,8 @@ import Match            from "../models/Match.js";
 import BusinessDecision from "../models/BusinessDecision.js";
 import Swipe            from "../models/Swipe.js";
 import CV               from "../models/CV.js";
-import { traitCompatibility, inferArchetype } from "../utils/traitMatch.js";
+import { traitCompatibility, inferArchetype, resolveListingTarget } from "../utils/traitMatch.js";
+import { buildRoleProfile } from "../config/listingQuestions.js";
 import User             from "../models/User.js";
 import Business         from "../models/Business.js";
 import authMiddleware   from "../middleware/auth.js";
@@ -82,7 +83,7 @@ router.get("/applicants/pending", authMiddleware, async (req, res, next) => {
     const swipes = await Swipe
       .find({ business_id: req.user.id, direction: "right" })
       .populate("user_id", "name age email phone_number avatar_path location work_type experience_level industry_preference skills languages bio traits")
-      .populate("job_id",  "job_title job_type archetype description job_description")
+      .populate("job_id",  "job_title job_type archetype description job_description role_answers")
       .sort({ createdAt: -1 });
 
     // Exclude user+job combinations already decided on
@@ -117,10 +118,12 @@ router.get("/applicants/pending", authMiddleware, async (req, res, next) => {
           : null,
         // Personality fit vs the job they applied for (0–100, null if unknowable)
         fit_score: (() => {
-          if (!s.user_id.traits) return null;
-          const arch = s.job_id ? inferArchetype(s.job_id.toJSON()) : null;
-          if (!arch) return null;
-          return Math.round(traitCompatibility(s.user_id.traits, arch) * 100);
+          if (!s.user_id.traits || !s.job_id) return null;
+          const jobObj = s.job_id.toJSON();
+          const rp = jobObj.role_answers?.length ? buildRoleProfile(jobObj.role_answers) : null;
+          const { traits: tgt, importance } = resolveListingTarget(jobObj, rp);
+          if (!tgt || Object.keys(tgt).length === 0) return null;
+          return Math.round(traitCompatibility(s.user_id.traits, tgt, importance) * 100);
         })(),
         ...s.user_id.toJSON(),
         cv_path: cvMap[s.user_id._id.toString()] ?? s.user_id.cv_path ?? null,

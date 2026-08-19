@@ -11,6 +11,7 @@ import { Platform } from "react-native";
 import { AuthContext } from "../../context/AuthContext";
 import { api, API_URL } from "../../services/api";
 import { getInitials, avatarUrl } from "../../utils/format";
+import DeleteAccountModal from "../../components/DeleteAccountModal";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 export default function UserProfileScreen({ navigation }) {
@@ -84,6 +85,8 @@ export default function UserProfileScreen({ navigation }) {
       uploadCV();
     }
   };
+
+  const [showDelete, setShowDelete] = React.useState(false);
 
   const handleLogout = () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
@@ -252,6 +255,17 @@ export default function UserProfileScreen({ navigation }) {
         <Ionicons name="log-out-outline" size={20} color="#FFF" />
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
+
+      {/* Permanent account deletion (required by the app stores) */}
+      <TouchableOpacity style={styles.deleteAccountBtn} onPress={() => setShowDelete(true)}>
+        <Text style={styles.deleteAccountText}>Delete my account</Text>
+      </TouchableOpacity>
+
+      <DeleteAccountModal
+        visible={showDelete}
+        onClose={() => setShowDelete(false)}
+        role="user"
+      />
     </ScrollView>
   );
 }
@@ -389,4 +403,6 @@ const styles = StyleSheet.create({
     ...SHADOWS.sm,
   },
   logoutText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
+  deleteAccountBtn:  { marginTop: SPACING.md, paddingVertical: 10 },
+  deleteAccountText: { color: COLORS.danger, fontSize: 13.5, fontWeight: "600", textDecorationLine: "underline" },
 });

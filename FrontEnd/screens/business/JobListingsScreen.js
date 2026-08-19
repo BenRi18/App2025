@@ -6,6 +6,7 @@ import {
   ActivityIndicator, RefreshControl, Alert, TextInput,
   Modal, ScrollView, Switch, SafeAreaView, KeyboardAvoidingView, Platform,
 } from "react-native";
+import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../services/api";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
@@ -17,6 +18,8 @@ const EMPTY_FORM = {
   job_type:        "full-time",
   salary_range:    "",
   job_description: "",
+  location:        null,   // { lat, lng, label } — precise place of work
+  role_answers:    [],     // [{ questionId, optionId }] — role personality profile
 };
 
 export default function JobListingsScreen() {
@@ -30,6 +33,7 @@ export default function JobListingsScreen() {
   const [editingJob,   setEditingJob]   = useState(null);  // null = create, object = edit
   const [form,         setForm]         = useState(EMPTY_FORM);
   const [formError,    setFormError]    = useState("");
+  const [roleQuestions, setRoleQuestions] = useState([]);
 
   const fetchJobs = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -47,12 +51,53 @@ export default function JobListingsScreen() {
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
+  useEffect(() => {
+    api.get("/jobs/listing-questions")
+      .then(res => (res.ok ? res.json() : []))
+      .then(qs => setRoleQuestions(Array.isArray(qs) ? qs : []))
+      .catch(() => {});
+  }, []);
+
+  const setRoleAnswer = (questionId, optionId) => {
+    setForm(f => {
+      const rest = (f.role_answers ?? []).filter(a => a.questionId !== questionId);
+      return { ...f, role_answers: [...rest, { questionId, optionId }] };
+    });
+  };
+
   // ── Open modal ─────────────────────────────────────────────────────────────
   const openCreate = () => {
     setEditingJob(null);
     setForm(EMPTY_FORM);
     setFormError("");
     setModalVisible(true);
+  };
+
+  const useMyLocation = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Location access is required to pin this role's workplace.");
+      return;
+    }
+    try {
+      const pos = await Location.getCurrentPositionAsync({});
+      let label = "";
+      try {
+        const places = await Location.reverseGeocodeAsync(pos.coords);
+        const p = places?.[0];
+        if (p) label = [p.street, p.city].filter(Boolean).join(", ");
+      } catch {}
+      setForm(f => ({
+        ...f,
+        location: {
+          lat:   pos.coords.latitude,
+          lng:   pos.coords.longitude,
+          label: label || f.location?.label || "",
+        },
+      }));
+    } catch {
+      Alert.alert("Location error", "Couldn't read your position. Try again outdoors or check GPS.");
+    }
   };
 
   const openEdit = (job) => {
@@ -62,6 +107,8 @@ export default function JobListingsScreen() {
       job_type:        job.job_type        ?? "full-time",
       salary_range:    job.salary_range    ?? "",
       job_description: job.job_description ?? "",
+      location:        job.location?.lat != null ? job.location : null,
+      role_answers:    Array.isArray(job.role_answers) ? job.role_answers : [],
     });
     setFormError("");
     setModalVisible(true);
@@ -287,6 +334,71 @@ export default function JobListingsScreen() {
                 onChangeText={v => setForm(f => ({ ...f, salary_range: v }))}
               />
 
+              {/* Workplace location */}
+              <Text style={styles.label}>Workplace Location</Text>
+              <TouchableOpacity style={styles.locBtn} onPress={useMyLocation} activeOpacity={0.8}>
+                <Ionicons
+                  name={form.location ? "checkmark-circle" : "locate-outline"}
+                  size={16}
+                  color={form.location ? COLORS.success : COLORS.primary}
+                />
+                <Text style={[styles.locBtnText, form.location && { color: COLORS.success }]}>
+                  {form.location ? "Location pinned" : "Use my current location"}
+                </Text>
+              </TouchableOpacity>
+              {form.location ? (
+                <View style={styles.locRow}>
+                  <Text style={styles.locLabel} numberOfLines={1}>
+                    📍 {form.location.label || `${form.location.lat.toFixed(4)}, ${form.location.lng.toFixed(4)}`}
+                  </Text>
+                  <TouchableOpacity onPress={() => setForm(f => ({ ...f, location: null }))}>
+                    <Text style={styles.locClear}>Clear</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Text style={styles.locHint}>
+                  Not set — the job will use your pinned business location for distance matching.
+                </Text>
+              )}
+
+              {/* Role profile questionnaire (optional) */}
+              <View style={styles.roleHeader}>
+                <Text style={styles.label}>Role Profile</Text>
+                <Text style={styles.roleOptional}>Optional · sharpens matching</Text>
+              </View>
+              <Text style={styles.roleIntro}>
+                Answer a few quick questions about the person this role needs.
+                We'll prioritise candidates whose personality fits.
+              </Text>
+              {roleQuestions.map((q) => {
+                const chosen = (form.role_answers ?? []).find(a => a.questionId === q.id)?.optionId;
+                return (
+                  <View key={q.id} style={styles.roleQ}>
+                    <Text style={styles.roleQText}>{q.text}</Text>
+                    {q.options.map((o) => {
+                      const active = chosen === o.id;
+                      return (
+                        <TouchableOpacity
+                          key={o.id}
+                          style={[styles.roleOpt, active && styles.roleOptActive]}
+                          onPress={() => setRoleAnswer(q.id, o.id)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons
+                            name={active ? "radio-button-on" : "radio-button-off"}
+                            size={17}
+                            color={active ? COLORS.primary : COLORS.textMuted}
+                          />
+                          <Text style={[styles.roleOptText, active && styles.roleOptTextActive]}>
+                            {o.text}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+
               {/* Description */}
               <Text style={styles.label}>Job Description</Text>
               <TextInput
@@ -325,6 +437,47 @@ export default function JobListingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  roleHeader:   { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: SPACING.md },
+  roleOptional: { fontSize: 11.5, color: COLORS.textMuted, fontWeight: "600" },
+  roleIntro:    { fontSize: 12.5, color: COLORS.textSecondary, lineHeight: 18, marginTop: 2, marginBottom: SPACING.sm },
+  roleQ:        { marginBottom: SPACING.md },
+  roleQText:    { fontSize: 13.5, fontWeight: "700", color: COLORS.textPrimary, marginBottom: SPACING.sm },
+  roleOpt: {
+    flexDirection:   "row",
+    alignItems:      "center",
+    gap:             10,
+    borderWidth:     1.5,
+    borderColor:     COLORS.border,
+    borderRadius:    RADIUS.sm,
+    paddingVertical: 10,
+    paddingHorizontal: SPACING.md,
+    marginBottom:    6,
+  },
+  roleOptActive:     { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
+  roleOptText:       { flex: 1, fontSize: 13, color: COLORS.textSecondary, lineHeight: 18 },
+  roleOptTextActive: { color: COLORS.primaryDark, fontWeight: "600" },
+  locBtn: {
+    flexDirection:   "row",
+    alignItems:      "center",
+    gap:             8,
+    borderWidth:     1.5,
+    borderColor:     COLORS.border,
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.sm,
+    paddingVertical: 11,
+    paddingHorizontal: SPACING.md,
+  },
+  locBtnText: { fontSize: 13.5, fontWeight: "700", color: COLORS.primary },
+  locRow: {
+    flexDirection:  "row",
+    alignItems:     "center",
+    justifyContent: "space-between",
+    marginTop:      6,
+    gap:            10,
+  },
+  locLabel: { flex: 1, fontSize: 12.5, color: COLORS.textSecondary },
+  locClear: { fontSize: 12.5, fontWeight: "700", color: COLORS.danger },
+  locHint:  { fontSize: 12, color: COLORS.textMuted, marginTop: 6, fontStyle: "italic" },
   center: { flex: 1 },
   list:   { padding: SPACING.md, flexGrow: 1, backgroundColor: COLORS.background },
   listHeader: {

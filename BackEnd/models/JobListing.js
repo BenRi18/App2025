@@ -20,6 +20,34 @@ const jobListingSchema = new mongoose.Schema(
     // Trait-matching archetype, e.g. 'bar_service' — see config/questionnaire.js
     archetype: { type: String },
 
+    // Per-listing role questionnaire answers (business declares what the role
+    // needs). Raw answers stored; the trait target is derived at match time.
+    role_answers: {
+      type: [
+        {
+          _id:        false,
+          questionId: { type: String, required: true },
+          optionId:   { type: String, required: true },
+        },
+      ],
+      default: undefined,
+    },
+
+    // Precise place of work for this role — proximity matching + map display.
+    // Defaults to the business's town when not set explicitly.
+    location: {
+      lat:   { type: Number, min: -90,  max: 90 },
+      lng:   { type: Number, min: -180, max: 180 },
+      label: { type: String, maxlength: 150 },
+    },
+
+    // GeoJSON mirror of `location` — powers worldwide $near proximity queries.
+    // Maintained automatically; never set directly.
+    geo: {
+      type:        { type: String, enum: ["Point"] },
+      coordinates: { type: [Number] },   // [lng, lat] — GeoJSON order!
+    },
+
     is_active: { type: Boolean, default: true },
   },
   { timestamps: true }
@@ -36,6 +64,16 @@ jobListingSchema.set("toJSON", {
     delete ret._id;
     delete ret.__v;
   },
+});
+
+jobListingSchema.index({ geo: "2dsphere" });
+
+// Keep the GeoJSON mirror in sync on document saves
+jobListingSchema.pre("save", function (next) {
+  if (this.location?.lat != null && this.location?.lng != null) {
+    this.geo = { type: "Point", coordinates: [this.location.lng, this.location.lat] };
+  }
+  next();
 });
 
 const JobListing = mongoose.model("JobListing", jobListingSchema);

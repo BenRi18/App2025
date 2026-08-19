@@ -33,7 +33,16 @@ setupSocket(io);
 app.use(helmet());
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-app.use(cors());
+// Behind a hosting proxy (Railway/Render/Fly) — needed for correct client IPs
+app.set("trust proxy", 1);
+
+// CORS: mobile apps send no Origin header, so a permissive default is fine;
+// set ALLOWED_ORIGINS (comma-separated) to restrict web callers in production.
+const allowed = process.env.ALLOWED_ORIGINS?.split(",").map(s => s.trim());
+app.use(cors(allowed?.length ? { origin: allowed } : {}));
+
+// Health check for the hosting platform's uptime probes
+app.get("/health", (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
 // ─── Body parsing ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "1mb" }));
@@ -59,7 +68,7 @@ const PORT = process.env.PORT || 3000;
 
 connectDB()
   .then(() => {
-    httpServer.listen(PORT, () => {
+    httpServer.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server + WebSocket running on port ${PORT}`);
     });
   })

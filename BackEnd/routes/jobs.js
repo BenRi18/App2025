@@ -7,7 +7,9 @@ import Business      from "../models/Business.js";
 import Swipe         from "../models/Swipe.js";
 import User          from "../models/User.js";
 import authMiddleware from "../middleware/auth.js";
-import { rankBusinessesForUser } from "../utils/matchScore.js";
+import { rankBusinessesForUser, findTown } from "../utils/matchScore.js";
+import { notifyCompatibleUsers } from "../utils/notifyCompatible.js";
+import { LISTING_QUESTIONS } from "../config/listingQuestions.js";
 
 const router = express.Router();
 
@@ -42,6 +44,25 @@ const jobValidators = [
 
 // ─── POST /jobs ────────────────────────────────────────────────────────────────
 // Business creates a new listing.
+
+// Sanitize an optional { lat, lng, label } location payload; null when unusable
+function parseLocation(loc) {
+  if (!loc || typeof loc !== "object") return null;
+  const lat = Number(loc.lat), lng = Number(loc.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return {
+    lat, lng,
+    label: typeof loc.label === "string" ? loc.label.slice(0, 150) : undefined,
+  };
+}
+
+// ─── GET /jobs/listing-questions ──────────────────────────────────────────────
+// The per-listing role questionnaire, served to the posting form.
+router.get("/listing-questions", authMiddleware, (_req, res) => {
+  res.json(LISTING_QUESTIONS);
+});
+
 router.post("/", authMiddleware, jobValidators, async (req, res, next) => {
   try {
     if (req.user.role !== "business") {
@@ -49,14 +70,44 @@ router.post("/", authMiddleware, jobValidators, async (req, res, next) => {
     }
     if (!validate(req, res)) return;
 
-    const { job_title, job_type, salary_range, description } = req.body;
+    const { job_title, job_type, salary_range, archetype, location, role_answers } = req.body;
+    const description = req.body.description ?? req.body.job_description;
+
+    const business = await Business.findById(req.user.id)
+      .select("business_name city street location");
+
+    // Per-role location fallback chain: explicit pin → the business's own
+    // pinned premises → town lookup (legacy seed data only)
+    let loc = parseLocation(location);
+    if (!loc && business?.location?.lat != null) {
+      loc = {
+        lat:   business.location.lat,
+        lng:   business.location.lng,
+        label: business.location.label ?? business.city ?? undefined,
+      };
+    }
+    if (!loc && business?.city) {
+      const townCoords = findTown(business.city.toLowerCase());
+      if (townCoords) {
+        loc = { lat: townCoords[0], lng: townCoords[1], label: business.city };
+      }
+    }
+
     const listing = await JobListing.create({
       business_id:  req.user.id,
       job_title,
       job_type:     job_type     ?? undefined,
       salary_range: salary_range ?? undefined,
       description:  description  ?? undefined,
+      archetype:    archetype    ?? undefined,
+      location:     loc          ?? undefined,
+      role_answers: Array.isArray(role_answers) && role_answers.length ? role_answers : undefined,
     });
+
+    // Ping compatible nearby users — fire and forget, never blocks the response
+    if (listing.is_active && business) {
+      notifyCompatibleUsers(listing, business).catch(() => {});
+    }
 
     res.status(201).json(listing.toJSON());
   } catch (err) {
@@ -99,6 +150,19 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
       .findById(req.user.id)
       .select("work_type industry_preference location travel_distance traits");
 
+    // Live device position from the app (optional). Powers precise proximity
+    // and is remembered (fire-and-forget) for compatibility notifications.
+    const lat = Number(req.query.lat), lng = Number(req.query.lng);
+    const liveCoords = Number.isFinite(lat) && Number.isFinite(lng) &&
+                       lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+      ? [lat, lng] : null;
+    if (liveCoords) {
+      User.updateOne(
+        { _id: req.user.id },
+        { last_location: { lat, lng, at: new Date() } }
+      ).catch(() => {});
+    }
+
     // 2 — What the user has already swiped on
     const swipes = await Swipe
       .find({ user_id: req.user.id })
@@ -110,15 +174,33 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
       else          fullySwipedBizIds.add(s.business_id.toString());   // legacy
     }
 
-    // 3 — Candidate jobs: active, not yet swiped, business not legacy-swiped
-    const jobs = await JobListing
-      .find({
-        is_active: true,
-        _id:         { $nin: [...swipedJobIds] },
-        business_id: { $nin: [...fullySwipedBizIds] },
-      })
-      .sort({ createdAt: -1 })
-      .limit(300);
+    // 3 — Candidate jobs: active, not yet swiped, business not legacy-swiped.
+    // With a known position, filter by real proximity AT THE DATABASE — this is
+    // what makes the feed work worldwide: a traveler in Lisbon queries Lisbon
+    // jobs, never the planet.
+    const FEED_RADIUS_KM = { "5km": 15, "10km": 25, "25km": 50, "any": 100 };
+    const baseFilter = {
+      is_active: true,
+      _id:         { $nin: [...swipedJobIds] },
+      business_id: { $nin: [...fullySwipedBizIds] },
+    };
+
+    let jobs;
+    if (liveCoords) {
+      const radiusKm = FEED_RADIUS_KM[(user?.travel_distance ?? "").toLowerCase()] ?? 50;
+      jobs = await JobListing.find({
+        ...baseFilter,
+        geo: {
+          $near: {
+            $geometry:    { type: "Point", coordinates: [liveCoords[1], liveCoords[0]] },
+            $maxDistance: radiusKm * 1000,
+          },
+        },
+      }).limit(300);   // $near returns nearest-first
+    } else {
+      // Position unknown (permission denied / simulator) — recency fallback
+      jobs = await JobListing.find(baseFilter).sort({ createdAt: -1 }).limit(300);
+    }
 
     if (jobs.length === 0) return res.json([]);
 
@@ -137,7 +219,7 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
         return { ...biz.toJSON(), job_listing: j.toJSON() };
       });
 
-    const ranked = rankBusinessesForUser(user?.toJSON?.() ?? user ?? {}, merged);
+    const ranked = rankBusinessesForUser(user?.toJSON?.() ?? user ?? {}, merged, liveCoords);
 
     // 6 — Shape for the deck: job front and center, business as context
     const feed = ranked.slice(0, 50).map(e => ({
@@ -152,6 +234,7 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
         avatar_path:   e.avatar_path,
       },
       match_score: e.match_score,
+      distance_km: e.match_breakdown?.distance_km ?? null,
     }));
 
     res.json(feed);
@@ -186,15 +269,27 @@ router.put("/:id", authMiddleware, jobValidators, async (req, res, next) => {
       return res.status(403).json({ error: "You can only edit your own listings" });
     }
 
-    const { job_title, job_type, salary_range, description } = req.body;
+    const { job_title, job_type, salary_range, archetype, location, role_answers } = req.body;
+    const description = req.body.description ?? req.body.job_description;
+    const patch = {
+      job_title,
+      job_type:     job_type     ?? undefined,
+      salary_range: salary_range ?? undefined,
+      description:  description  ?? undefined,
+      archetype:    archetype    ?? undefined,
+    };
+    const loc = parseLocation(location);
+    if (loc) {
+      patch.location = loc;
+      patch.geo = { type: "Point", coordinates: [loc.lng, loc.lat] };
+    }
+    if (Array.isArray(role_answers)) {
+      patch.role_answers = role_answers.length ? role_answers : undefined;
+    }
+
     const updated = await JobListing.findByIdAndUpdate(
       req.params.id,
-      {
-        job_title,
-        job_type:     job_type     ?? undefined,
-        salary_range: salary_range ?? undefined,
-        description:  description  ?? undefined,
-      },
+      patch,
       { new: true, runValidators: true }
     );
 

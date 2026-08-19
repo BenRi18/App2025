@@ -22,6 +22,14 @@ const businessSchema = new mongoose.Schema(
     website:      { type: String, maxlength: 255 },
     industry:     { type: String, maxlength: 100 },
 
+    // Pinned coordinates of the premises — job listings inherit this when the
+    // role has no location of its own. Captured on-device, works worldwide.
+    location: {
+      lat:   { type: Number, min: -90,  max: 90 },
+      lng:   { type: Number, min: -180, max: 180 },
+      label: { type: String, maxlength: 150 },
+    },
+
     avatar_path:   { type: String },
     expoPushToken: { type: String },            // Expo push notification token
 
