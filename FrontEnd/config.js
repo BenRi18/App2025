@@ -13,7 +13,7 @@ import Constants from "expo-constants";
 
 // Set this to force a specific backend, e.g. "http://192.168.1.50:3000"
 // or your production URL. Leave null to auto-detect.
-const MANUAL_API_URL = null;
+const MANUAL_API_URL = "https://jobswipe-api-5aly.onrender.com";
 
 // TESTING CONVENIENCE: set true to always boot to the login screen (the saved
 // session is cleared on launch). Only works in development builds — production
