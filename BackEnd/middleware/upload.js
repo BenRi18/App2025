@@ -25,13 +25,23 @@ if (useS3) {
     region:      process.env.S3_REGION || "auto",
     // S3_ENDPOINT is only needed for Cloudflare R2 or other S3-compatible providers.
     // Leave it unset for standard AWS S3.
-    ...(process.env.S3_ENDPOINT && { endpoint: process.env.S3_ENDPOINT }),
+    ...(process.env.S3_ENDPOINT && {
+      endpoint: process.env.S3_ENDPOINT,
+      // R2 (and most S3-compatible providers) require PATH-style addressing:
+      //   endpoint.com/bucket/key      ← correct
+      //   bucket.endpoint.com/key      ← AWS default, fails TLS on R2
+      // Without this the handshake is rejected ("SSL alert number 40")
+      // because the wildcard certificate doesn't cover bucket subdomains.
+      forcePathStyle: true,
+    }),
     credentials: {
       accessKeyId:     process.env.S3_ACCESS_KEY,
       secretAccessKey: process.env.S3_SECRET_KEY,
     },
   });
-  console.log("☁️   File storage: S3 →", process.env.S3_BUCKET);
+  console.log("☁️   File storage: S3");
+  console.log("     bucket  :", process.env.S3_BUCKET);
+  console.log("     endpoint:", process.env.S3_ENDPOINT || "(AWS default)");
 } else {
   console.log("💾  File storage: local disk (set S3_* env vars to use cloud storage)");
 }
