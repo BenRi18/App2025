@@ -11,7 +11,7 @@ import Business      from "../models/Business.js";
 import JobListing    from "../models/JobListing.js";
 import RefreshToken  from "../models/RefreshToken.js";
 import authMiddleware        from "../middleware/auth.js";
-import { makeRateLimiter }  from "../middleware/rateLimiter.js";
+import { makeRateLimiter, makeAccountLimiter } from "../middleware/rateLimiter.js";
 import fs from "fs";
 import { uploadAvatar, uploadCV, filePath, deleteFile } from "../middleware/upload.js";
 import Match            from "../models/Match.js";
@@ -21,7 +21,13 @@ import BusinessDecision from "../models/BusinessDecision.js";
 import CV               from "../models/CV.js";
 
 const router     = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error(
+    "JWT_SECRET is missing or too short (need 32+ chars). Refusing to start: " +
+    "a weak or default signing key lets anyone forge login tokens."
+  );
+}
 
 // Email verification is only enforced when EMAIL_USER is configured.
 // In development (no EMAIL_USER) accounts are auto-verified and tokens are logged to console.
@@ -29,6 +35,9 @@ const EMAIL_ENABLED = !!process.env.EMAIL_USER;
 
 // ─── Rate limiters ────────────────────────────────────────────────────────────
 const loginLimiter        = makeRateLimiter(10, 15 * 60 * 1000);
+// Per-account: 8 failures in 15 min → 30 min lockout for THAT account only.
+// Blocks distributed guessing that per-IP limits can't see.
+const loginAccountLimiter = makeAccountLimiter(8, 15 * 60 * 1000, 30 * 60 * 1000);
 const registerLimiter     = makeRateLimiter(5,  60 * 60 * 1000);
 const forgotLimiter       = makeRateLimiter(5,  60 * 60 * 1000);
 const resendLimiter       = makeRateLimiter(3,  60 * 60 * 1000);
@@ -114,6 +123,20 @@ router.post(
 
     body("password")
       .isLength({ min: 8, max: 128 }).withMessage("Password must be 8–128 characters")
+      .matches(/[a-z]/).withMessage("Password must contain a lowercase letter")
+      .matches(/[A-Z]/).withMessage("Password must contain an uppercase letter")
+      .matches(/[0-9]/).withMessage("Password must contain a number")
+      .custom((pw) => {
+        // Reject the passwords attackers try first
+        const common = [
+          "password", "12345678", "qwerty", "letmein", "welcome",
+          "admin123", "password1", "iloveyou", "abc12345", "jobswipe",
+        ];
+        if (common.some(c => pw.toLowerCase().includes(c))) {
+          throw new Error("That password is too common — choose something less guessable");
+        }
+        return true;
+      })
       .matches(/[a-zA-Z]/)           .withMessage("Password must contain at least one letter")
       .matches(/\d/)                 .withMessage("Password must contain at least one number"),
 
@@ -330,7 +353,7 @@ router.post(
       const okMsg = { message: "If that email is registered and unverified, a new link has been sent." };
 
       const Model   = role === "user" ? User : Business;
-      const account = await Model.findOne({ email, isEmailVerified: false })
+      const account = await Model.findOne({ email: String(email), isEmailVerified: false })
         .select("+emailVerificationToken +emailVerificationExpires");
 
       if (!account) return res.json(okMsg);
@@ -369,6 +392,7 @@ router.post(
 router.post(
   "/login",
   loginLimiter,
+  loginAccountLimiter,
   [
     body("role").isIn(["user", "business"]).withMessage("Role must be 'user' or 'business'"),
     body("email").trim().normalizeEmail({ gmail_remove_dots: false })
@@ -384,11 +408,20 @@ router.post(
       const Model      = role === "user" ? User : Business;
       const invalidMsg = "Invalid email or password"; // generic to prevent enumeration
 
-      const account = await Model.findOne({ email }).select("+password");
-      if (!account) return res.status(401).json({ error: invalidMsg });
+      const account = await Model.findOne({ email: String(email) }).select("+password");
+      if (!account) {
+        // Hash anyway so a missing account and a wrong password take the same
+        // time — otherwise response timing reveals which emails are registered.
+        await bcrypt.compare(password, "$2b$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidin");
+        res.locals.recordAuthFailure?.();
+        return res.status(401).json({ error: invalidMsg });
+      }
 
       const isMatch = await bcrypt.compare(password, account.password);
-      if (!isMatch) return res.status(401).json({ error: invalidMsg });
+      if (!isMatch) {
+        res.locals.recordAuthFailure?.();
+        return res.status(401).json({ error: invalidMsg });
+      }
 
       if (!account.isEmailVerified) {
         return res.status(403).json({
@@ -397,6 +430,7 @@ router.post(
         });
       }
 
+      res.locals.clearAuthFailures?.();   // successful login resets the counter
       const tokens = await generateTokens(account._id.toString(), role);
       res.json({ ...tokens, role });
 
@@ -629,7 +663,16 @@ router.put(
       if (!isMatch) return res.status(401).json({ error: "Current password is incorrect" });
       account.password = await bcrypt.hash(newPassword, 12);
       await account.save();
-      res.json({ message: "Password updated successfully" });
+
+      // Revoke every existing session. If an attacker had stolen a refresh
+      // token, changing the password must lock them out — otherwise their
+      // session survives the very action taken to stop them.
+      await RefreshToken.deleteMany({ user_id: id });
+
+      res.json({
+        message: "Password updated successfully",
+        sessionsRevoked: true,
+      });
     } catch (err) {
       next(err);
     }
@@ -653,7 +696,7 @@ router.post(
       const { email, role } = req.body;
       const Model   = role === "user" ? User : Business;
       const okMsg   = { message: "If that email is registered you will receive a reset link shortly." };
-      const account = await Model.findOne({ email })
+      const account = await Model.findOne({ email: String(email) })
         .select("+passwordResetToken +passwordResetExpires");
       if (!account) return res.json(okMsg);
 
@@ -699,6 +742,20 @@ router.post(
     body("token").notEmpty().withMessage("Token is required"),
     body("newPassword")
       .isLength({ min: 8, max: 128 }).withMessage("Password must be 8–128 characters")
+      .matches(/[a-z]/).withMessage("Password must contain a lowercase letter")
+      .matches(/[A-Z]/).withMessage("Password must contain an uppercase letter")
+      .matches(/[0-9]/).withMessage("Password must contain a number")
+      .custom((pw) => {
+        // Reject the passwords attackers try first
+        const common = [
+          "password", "12345678", "qwerty", "letmein", "welcome",
+          "admin123", "password1", "iloveyou", "abc12345", "jobswipe",
+        ];
+        if (common.some(c => pw.toLowerCase().includes(c))) {
+          throw new Error("That password is too common — choose something less guessable");
+        }
+        return true;
+      })
       .matches(/[a-zA-Z]/)             .withMessage("Must contain a letter")
       .matches(/\d/)                   .withMessage("Must contain a number"),
   ],
@@ -722,6 +779,10 @@ router.post(
       account.passwordResetToken   = undefined;
       account.passwordResetExpires = undefined;
       await account.save();
+
+      // Revoke all sessions — a reset is often triggered precisely because
+      // the account may already be compromised.
+      await RefreshToken.deleteMany({ user_id: account._id });
 
       res.json({ message: "Password reset successfully. You can now log in." });
     } catch (err) {

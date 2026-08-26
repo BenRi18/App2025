@@ -1,6 +1,6 @@
 // FrontEnd/context/AuthContext.js
 import React, { createContext, useState, useEffect, useCallback } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getSecure, setSecure, clearSecure, migrateFromAsyncStorage } from "../services/secureStore";
 import * as Notifications from "expo-notifications";
 import { Platform }       from "react-native";
 import { api, API_URL }   from "../services/api";
@@ -57,13 +57,16 @@ export default function AuthProvider({ children }) {
   useEffect(() => {
     (async () => {
       try {
+        // Move any plaintext tokens from a previous version into the keychain
+        await migrateFromAsyncStorage();
+
         // Dev-only: force the login screen every boot while testing
         if (__DEV__ && DEV_FORCE_LOGIN) {
-          await AsyncStorage.multiRemove(["token", "refreshToken", "role"]);
+          await clearSecure();
           return;
         }
 
-        const [t, rt, r] = await AsyncStorage.multiGet(["token", "refreshToken", "role"]);
+        const [t, rt, r] = await Promise.all([getSecure("token"),getSecure("refreshToken"),getSecure("role")]);
         const tok  = t[1];
         const rt_  = rt[1];
         const role_= r[1];
@@ -74,13 +77,13 @@ export default function AuthProvider({ children }) {
           try {
             const res = await api.get("/auth/me");
             if (res.ok) {
-              setToken(await AsyncStorage.getItem("token")); // may have been refreshed
-              setRefreshToken(await AsyncStorage.getItem("refreshToken"));
+              setToken(await getSecure("token")); // may have been refreshed
+              setRefreshToken(await getSecure("refreshToken"));
               setRole(role_);
               connectSocket(tok);
             } else if (res.status === 404 || res.status === 403) {
               // Account no longer exists on this server (e.g. different DB)
-              await AsyncStorage.multiRemove(["token", "refreshToken", "role"]);
+              await clearSecure();
             } else {
               // Server-side error — keep the session, don't punish the user
               setToken(tok); setRefreshToken(rt_); setRole(role_);
@@ -107,10 +110,10 @@ export default function AuthProvider({ children }) {
   // ── Login ─────────────────────────────────────────────────────────────────
   const login = useCallback(async (newToken, newRefreshToken, newRole) => {
     try {
-      await AsyncStorage.multiSet([
-        ["token",        newToken],
-        ["refreshToken", newRefreshToken],
-        ["role",         newRole],
+      await Promise.all([
+        setSecure("token",        newToken),
+        setSecure("refreshToken", newRefreshToken),
+        setSecure("role",         newRole),
       ]);
     } catch (e) {
       console.warn("Failed to persist session:", e);
@@ -139,7 +142,7 @@ export default function AuthProvider({ children }) {
     }
 
     try {
-      await AsyncStorage.multiRemove(["token", "refreshToken", "role"]);
+      await clearSecure();
     } catch (e) {
       console.warn("Failed to clear session:", e);
     }

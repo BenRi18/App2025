@@ -20,7 +20,13 @@ import jwt      from "jsonwebtoken";
 import Match    from "./models/Match.js";
 import Message  from "./models/Message.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error(
+    "JWT_SECRET is missing or too short (need 32+ chars). Refusing to start: " +
+    "a weak or default signing key lets anyone forge login tokens."
+  );
+}
 
 // Module-level io reference so routes can emit events
 let _io = null;
@@ -67,6 +73,9 @@ export function setupSocket(io) {
     socket.on("send_message", async ({ matchId, content }) => {
       try {
         if (!content?.trim()) return socket.emit("error", { message: "Message cannot be empty" });
+        if (typeof content !== "string" || content.length > 2000) {
+          return socket.emit("error", { message: "Message too long (2000 characters max)" });
+        }
 
         const query = role === "user"
           ? { _id: matchId, user_id:     id }

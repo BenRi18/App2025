@@ -56,3 +56,68 @@ export function makeRateLimiter(maxRequests, windowMs) {
     next();
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Account-targeted limiter
+//
+// IP limiting alone doesn't stop a distributed attack: 500 machines each
+// trying 10 passwords against ONE account never trips a per-IP limit. This
+// limits attempts against a specific IDENTITY regardless of origin, and is
+// applied ALONGSIDE the IP limiter (both must pass).
+//
+// Deliberately generous so a real user fumbling their password isn't locked
+// out, but tight enough that guessing is hopeless.
+// ─────────────────────────────────────────────────────────────────────────────
+const accountStore = new Map(); // identity → { count, resetAt, lockedUntil }
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of accountStore) {
+    if (now > entry.resetAt && (!entry.lockedUntil || now > entry.lockedUntil)) {
+      accountStore.delete(key);
+    }
+  }
+}, 10 * 60 * 1000);
+
+/**
+ * Limit failed attempts against a single account identity.
+ * @param {number} maxAttempts  failures allowed in the window
+ * @param {number} windowMs     rolling window
+ * @param {number} lockoutMs    how long to lock after exceeding
+ */
+export function makeAccountLimiter(maxAttempts, windowMs, lockoutMs) {
+  return (req, res, next) => {
+    const email = String(req.body?.email ?? "").toLowerCase().trim();
+    const role  = String(req.body?.role  ?? "");
+    if (!email) return next();
+
+    const key = `${role}:${email}`;
+    const now = Date.now();
+    const entry = accountStore.get(key);
+
+    if (entry?.lockedUntil && now < entry.lockedUntil) {
+      const mins = Math.ceil((entry.lockedUntil - now) / 60000);
+      return res.status(429).json({
+        error: `Too many failed attempts for this account. Try again in ${mins} minute(s), or reset your password.`,
+      });
+    }
+
+    // Expose the recorder so the route can count only FAILED attempts —
+    // successful logins must never count against the user.
+    res.locals.recordAuthFailure = () => {
+      const now2 = Date.now();
+      let e = accountStore.get(key);
+      if (!e || now2 > e.resetAt) e = { count: 0, resetAt: now2 + windowMs };
+      e.count++;
+      if (e.count >= maxAttempts) {
+        e.lockedUntil = now2 + lockoutMs;
+        e.count = 0;
+        console.warn(`🔒 Account temporarily locked after repeated failures: ${key}`);
+      }
+      accountStore.set(key, e);
+    };
+    res.locals.clearAuthFailures = () => accountStore.delete(key);
+
+    next();
+  };
+}

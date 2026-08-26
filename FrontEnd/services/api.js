@@ -3,14 +3,14 @@
 // expired access tokens.
 // The URL comes from config.js (auto-detected LAN IP, or MANUAL_API_URL).
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getSecure, setSecure, clearSecure } from "./secureStore";
 import { API_URL } from "../config";
 
 export { API_URL };
 
 // ─── Build request headers ────────────────────────────────────────────────────
 async function buildHeaders(isFormData = false) {
-  const token = await AsyncStorage.getItem("token");
+  const token = await getSecure("token");
   return {
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -19,7 +19,7 @@ async function buildHeaders(isFormData = false) {
 
 // ─── Silently refresh the access token ───────────────────────────────────────
 async function doRefresh() {
-  const refreshToken = await AsyncStorage.getItem("refreshToken");
+  const refreshToken = await getSecure("refreshToken");
   if (!refreshToken) throw new Error("NO_REFRESH_TOKEN");
 
   const res  = await fetch(`${API_URL}/auth/refresh`, {
@@ -30,9 +30,9 @@ async function doRefresh() {
   if (!res.ok) throw new Error("REFRESH_FAILED");
 
   const data = await res.json();
-  await AsyncStorage.multiSet([
-    ["token",        data.token],
-    ["refreshToken", data.refreshToken],
+  await Promise.all([
+    setSecure("token",        data.token),
+    setSecure("refreshToken", data.refreshToken),
   ]);
   return data.token;
 }
@@ -53,7 +53,7 @@ async function request(endpoint, options = {}, isRetry = false) {
       await doRefresh();
       return request(endpoint, options, true);
     } catch {
-      await AsyncStorage.multiRemove(["token", "refreshToken", "role"]);
+      await clearSecure();
       const err = new Error("SESSION_EXPIRED");
       err.sessionExpired = true;
       throw err;
