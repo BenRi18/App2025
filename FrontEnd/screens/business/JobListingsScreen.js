@@ -7,6 +7,8 @@ import {
   Modal, ScrollView, Switch, SafeAreaView, KeyboardAvoidingView, Platform,
 } from "react-native";
 import * as Location from "expo-location";
+import BackdropPicker from "../../components/BackdropPicker";
+import { suggestBackdrop } from "../../constants/backdrops";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../services/api";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
@@ -20,6 +22,7 @@ const EMPTY_FORM = {
   job_description: "",
   location:        null,   // { lat, lng, label } — precise place of work
   role_answers:    [],     // [{ questionId, optionId }] — role personality profile
+  backdrop:        null,   // chosen backdrop id; null = suggested from archetype
 };
 
 export default function JobListingsScreen() {
@@ -109,6 +112,7 @@ export default function JobListingsScreen() {
       job_description: job.job_description ?? "",
       location:        job.location?.lat != null ? job.location : null,
       role_answers:    Array.isArray(job.role_answers) ? job.role_answers : [],
+      backdrop:        job.backdrop ?? null,
     });
     setFormError("");
     setModalVisible(true);
@@ -361,6 +365,17 @@ export default function JobListingsScreen() {
                 </Text>
               )}
 
+              {/* Backdrop */}
+              <Text style={[styles.label, { marginTop: SPACING.md }]}>Card Backdrop</Text>
+              <Text style={styles.backdropIntro}>
+                Choose how this job looks in the swipe deck. Pick any backdrop —
+                these are grouped by trade only to help you browse.
+              </Text>
+              <BackdropPicker
+                value={form.backdrop ?? suggestBackdrop(form.archetype)}
+                onChange={(id) => setForm(f => ({ ...f, backdrop: id }))}
+              />
+
               {/* Role profile questionnaire (optional) */}
               <View style={styles.roleHeader}>
                 <Text style={styles.label}>Role Profile</Text>
@@ -437,6 +452,7 @@ export default function JobListingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  backdropIntro: { fontSize: 12.5, color: COLORS.textSecondary, lineHeight: 18, marginTop: 2, marginBottom: SPACING.sm },
   roleHeader:   { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: SPACING.md },
   roleOptional: { fontSize: 11.5, color: COLORS.textMuted, fontWeight: "600" },
   roleIntro:    { fontSize: 12.5, color: COLORS.textSecondary, lineHeight: 18, marginTop: 2, marginBottom: SPACING.sm },

@@ -5,10 +5,16 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import JobBackdrop from "./JobBackdrop";
+import { getBackdrop, suggestBackdrop } from "../constants/backdrops";
 import { COLORS, SPACING, RADIUS, SHADOWS, TYPE } from "../theme";
 
 export default function JobCard({ item }) {
-  const { job, business, match_score } = item;
+  const { job, business, match_score, distance_km } = item;
+
+  // The business's chosen backdrop, falling back to one suggested by the
+  // job's archetype so unchosen listings still look deliberate.
+  const bd = getBackdrop(job?.backdrop ?? suggestBackdrop(job?.archetype));
 
   const initials = business?.business_name
     ? business.business_name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
@@ -17,27 +23,30 @@ export default function JobCard({ item }) {
   return (
     <View style={styles.card}>
 
-      {/* Eyebrow: where — the recruiting context in micro-caps */}
-      <View style={styles.topRow}>
-        <Text style={styles.eyebrow}>
-          Hiring{business?.city ? ` · ${business.city}` : ""}
-        </Text>
-        {typeof match_score === "number" && (
-          <View style={styles.scoreBadge}>
-            <Ionicons name="flash" size={11} color={COLORS.sun} />
-            <Text style={styles.scoreText}>{Math.round(match_score)}%</Text>
+      {/* Backdrop header — the business's chosen world */}
+      <JobBackdrop backdropId={bd.id} width={340} height={150} style={styles.header}>
+        <View style={styles.headerInner}>
+          <View style={styles.topRow}>
+            <Text style={[styles.eyebrow, { color: bd.muted }]}>
+              Hiring{business?.city ? ` · ${business.city}` : ""}
+            </Text>
+            {typeof match_score === "number" && (
+              <View style={[styles.scoreBadge, { backgroundColor: bd.accent }]}>
+                <Ionicons name="flash" size={11} color={bd.ink} />
+                <Text style={[styles.scoreText, { color: bd.ink }]}>
+                  {Math.round(match_score)}%
+                </Text>
+              </View>
+            )}
           </View>
-        )}
-      </View>
 
-      {/* Hero: the job itself */}
-      <Text style={styles.jobTitle} numberOfLines={2}>{job?.job_title}</Text>
+          <Text style={[styles.jobTitle, { color: bd.ink }]} numberOfLines={2}>
+            {job?.job_title}
+          </Text>
+        </View>
+      </JobBackdrop>
 
-      {/* Horizon rule — coral sun meets teal sea */}
-      <View style={styles.horizon}>
-        <View style={styles.horizonDash} />
-        <View style={styles.horizonLine} />
-      </View>
+      <View style={styles.body}>
 
       {/* Business identity */}
       <View style={styles.bizRow}>
@@ -60,6 +69,14 @@ export default function JobCard({ item }) {
             <Text style={styles.chipText}>{job.job_type}</Text>
           </View>
         ) : null}
+        {typeof distance_km === "number" ? (
+          <View style={styles.chip}>
+            <Ionicons name="location-outline" size={12} color={COLORS.primary} />
+            <Text style={styles.chipText}>
+              {distance_km < 1 ? "Nearby" : `${distance_km} km`}
+            </Text>
+          </View>
+        ) : null}
         {job?.salary_range ? (
           <View style={[styles.chip, styles.chipCoral]}>
             <Ionicons name="cash-outline" size={12} color={COLORS.accent} />
@@ -78,6 +95,8 @@ export default function JobCard({ item }) {
         <Text style={styles.bizAbout} numberOfLines={2}>{business.description}</Text>
       ) : null}
 
+      </View>
+
       {/* Sand footer — the beach strip with the two choices */}
       <View style={styles.footer}>
         <View style={styles.hintSide}>
@@ -95,14 +114,15 @@ export default function JobCard({ item }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor:  COLORS.card,
-    borderRadius:     RADIUS.xl,
-    padding:          SPACING.lg,
-    paddingBottom:    0,
-    height:           "100%",
-    overflow:         "hidden",
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.xl,
+    height:          "100%",
+    overflow:        "hidden",
     ...SHADOWS.lg,
   },
+  header:      { width: "100%", minHeight: 150 },
+  headerInner: { padding: SPACING.lg, paddingBottom: SPACING.md },
+  body:        { paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, flex: 1 },
 
   topRow: {
     flexDirection:  "row",
@@ -115,19 +135,18 @@ const styles = StyleSheet.create({
     flexDirection:     "row",
     alignItems:        "center",
     gap:               4,
-    backgroundColor:   COLORS.sunLight,
     borderRadius:      RADIUS.full,
     paddingHorizontal: 9,
     paddingVertical:   4,
   },
-  scoreText: { color: "#9A6E12", fontSize: 12, fontWeight: "800" },
+  scoreText: { fontSize: 12, fontWeight: "800" },
 
   jobTitle: {
-    fontSize:      27,
+    fontSize:      26,
     fontWeight:    "900",
     letterSpacing: -0.5,
-    lineHeight:    32,
-    color:         COLORS.textPrimary,
+    lineHeight:    31,
+    marginTop:     SPACING.sm,
   },
 
   horizon:     { flexDirection: "row", alignItems: "center", gap: 6, marginTop: SPACING.sm, marginBottom: SPACING.md },
@@ -170,7 +189,6 @@ const styles = StyleSheet.create({
     backgroundColor:  COLORS.background,
     borderTopWidth:   1,
     borderTopColor:   COLORS.border,
-    marginHorizontal: -SPACING.lg,
     paddingHorizontal: SPACING.lg,
     paddingVertical:  13,
     marginTop:        "auto",

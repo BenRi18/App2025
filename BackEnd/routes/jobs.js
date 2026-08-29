@@ -70,7 +70,7 @@ router.post("/", authMiddleware, jobValidators, async (req, res, next) => {
     }
     if (!validate(req, res)) return;
 
-    const { job_title, job_type, salary_range, archetype, location, role_answers } = req.body;
+    const { job_title, job_type, salary_range, archetype, location, role_answers, backdrop } = req.body;
     const description = req.body.description ?? req.body.job_description;
 
     const business = await Business.findById(req.user.id)
@@ -102,6 +102,7 @@ router.post("/", authMiddleware, jobValidators, async (req, res, next) => {
       archetype:    archetype    ?? undefined,
       location:     loc          ?? undefined,
       role_answers: Array.isArray(role_answers) && role_answers.length ? role_answers : undefined,
+      backdrop:     typeof backdrop === "string" ? backdrop.slice(0, 40) : undefined,
     });
 
     // Ping compatible nearby users — fire and forget, never blocks the response
@@ -269,7 +270,7 @@ router.put("/:id", authMiddleware, jobValidators, async (req, res, next) => {
       return res.status(403).json({ error: "You can only edit your own listings" });
     }
 
-    const { job_title, job_type, salary_range, archetype, location, role_answers } = req.body;
+    const { job_title, job_type, salary_range, archetype, location, role_answers, backdrop } = req.body;
     const description = req.body.description ?? req.body.job_description;
     const patch = {
       job_title,
@@ -286,6 +287,7 @@ router.put("/:id", authMiddleware, jobValidators, async (req, res, next) => {
     if (Array.isArray(role_answers)) {
       patch.role_answers = role_answers.length ? role_answers : undefined;
     }
+    if (typeof backdrop === "string") patch.backdrop = backdrop.slice(0, 40);
 
     const updated = await JobListing.findByIdAndUpdate(
       req.params.id,
