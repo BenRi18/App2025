@@ -25,12 +25,20 @@ const httpServer = createServer(app);    // wrap Express in an HTTP server for S
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 const io = new Server(httpServer, {
-  cors: { origin: "*" },  // tighten this to your app's origin in production
+  cors: { origin: "*" },        // mobile clients send no Origin; auth is by JWT
+  maxHttpBufferSize: 1e6,       // 1 MB cap — stops oversized socket payloads
+  pingTimeout: 30000,
 });
 setupSocket(io);
 
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet());
+
+// ─── Global rate limit ────────────────────────────────────────────────────────
+// A backstop across every endpoint so no single client can flood the API even
+// on routes without their own limiter. Generous enough for normal app use.
+import { makeRateLimiter } from "./middleware/rateLimiter.js";
+app.use(makeRateLimiter(300, 60 * 1000));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 // Behind a hosting proxy (Railway/Render/Fly) — needed for correct client IPs
