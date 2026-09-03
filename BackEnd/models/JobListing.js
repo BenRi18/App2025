@@ -79,14 +79,15 @@ jobListingSchema.set("toJSON", {
 jobListingSchema.index({ geo: "2dsphere" }, { sparse: true });
 
 // Keep the GeoJSON mirror in sync on document saves
-jobListingSchema.pre("save", function (next) {
+// Mongoose 9 removed the `next` callback from middleware — hooks are async
+// functions now. Returning (or throwing) is what signals completion.
+jobListingSchema.pre("save", function () {
   if (this.location?.lat != null && this.location?.lng != null) {
     this.geo = { type: "Point", coordinates: [this.location.lng, this.location.lat] };
   } else if (!this.geo?.coordinates?.length) {
     // Never persist a half-formed geo object — it breaks the 2dsphere index
     this.geo = undefined;
   }
-  next();
 });
 
 const JobListing = mongoose.model("JobListing", jobListingSchema);
