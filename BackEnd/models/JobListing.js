@@ -20,6 +20,10 @@ const jobListingSchema = new mongoose.Schema(
     // Trait-matching archetype, e.g. 'bar_service' — see config/questionnaire.js
     archetype: { type: String },
 
+    // Chosen card backdrop id (see FrontEnd/constants/backdrops.js). Just an
+    // id — the palette and motif live in the app, so nothing is uploaded.
+    backdrop: { type: String, maxlength: 40 },
+
     // Per-listing role questionnaire answers (business declares what the role
     // needs). Raw answers stored; the trait target is derived at match time.
     role_answers: {
