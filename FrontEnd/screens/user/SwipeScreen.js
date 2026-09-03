@@ -32,9 +32,19 @@ export default function SwipeScreen({ navigation }) {
   const [showQuizBanner, setShowQuizBanner] = useState(false);
   const [firstName, setFirstName]     = useState(null);
   const [deckH, setDeckH]             = useState(0);
+  const [topIndex, setTopIndex]       = useState(0);
+  const [savedIds, setSavedIds]       = useState(new Set());
   const { token, user }               = useContext(AuthContext);
   const swiperRef                     = useRef(null);
   const swipedIds                     = useRef(new Set());
+  const aliveRef                      = useRef(true);
+
+  // Guard every async setState — the deck fetches on an interval and on focus,
+  // so a reply can land after the screen is gone.
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; };
+  }, []);
 
   // ── 0. Quiz banner + greeting name ────────────────────────────────────────
   useEffect(() => {
@@ -73,16 +83,19 @@ export default function SwipeScreen({ navigation }) {
   // ── 2. Fetch the job feed ─────────────────────────────────────────────────
   const fetchFeed = useCallback(() => {
     if (!location.latitude || !location.longitude) return;
+    if (!aliveRef.current) return;
     fetch(
       `${API_URL}/jobs/feed?lat=${location.latitude}&lng=${location.longitude}`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
       .then(res => res.json())
       .then(data => {
+        if (!aliveRef.current) return;
         const fresh = Array.isArray(data)
           ? data.filter(item => !swipedIds.current.has(item.job?.id))
           : [];
         setFeed(fresh);
+        setTopIndex(0);          // a new deck starts at the top card again
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -95,6 +108,7 @@ export default function SwipeScreen({ navigation }) {
     const interval = setInterval(async () => {
       try {
         const loc = await Location.getCurrentPositionAsync({});
+        if (!aliveRef.current) return;
         setLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
       } catch {}
     }, 60000);
@@ -132,6 +146,58 @@ export default function SwipeScreen({ navigation }) {
     } catch {
       Alert.alert("Network problem", "Couldn't reach the server to save your CV.");
     }
+  };
+
+  // ── Save the top card to the shortlist ────────────────────────────────────
+  const saveTop = async () => {
+    const item = feed[topIndex];
+    if (!item?.job) return;
+    try {
+      const res = await fetch(`${API_URL}/jobs/${item.job.id}/save`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setSavedIds(prev => new Set(prev).add(item.job.id));
+      } else {
+        Alert.alert("Couldn't save", "Try again in a moment.");
+      }
+    } catch {
+      Alert.alert("Network problem", "Couldn't reach the server.");
+    }
+  };
+
+  // ── Steer the feed: fewer of this kind, or hide the business ──────────────
+  const steerFeed = () => {
+    const item = feed[topIndex];
+    if (!item?.job || !item?.business) return;
+
+    Alert.alert("Show me less like this", "What would you like to change?", [
+      {
+        text: `Fewer ${item.job.job_type ?? "jobs"} like this`,
+        onPress: async () => {
+          if (!item.job.archetype) return;
+          await fetch(`${API_URL}/jobs/feed/mute-archetype`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ archetype: item.job.archetype }),
+          }).catch(() => {});
+          swiperRef.current?.swipeLeft();
+        },
+      },
+      {
+        text: `Hide ${item.business.business_name}`,
+        onPress: async () => {
+          await fetch(`${API_URL}/jobs/feed/hide-business`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ businessId: item.business.id }),
+          }).catch(() => {});
+          setFeed(f => f.filter(x => x.business?.id !== item.business.id));
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
   // ── 5. Handle card swipe — honest about failures ──────────────────────────
@@ -286,6 +352,7 @@ export default function SwipeScreen({ navigation }) {
               renderCard={card => <JobCard item={card} />}
               onSwipedLeft={i => handleSwipe(i, "left")}
               onSwipedRight={i => handleSwipe(i, "right")}
+              onSwiped={i => setTopIndex(i + 1)}
               cardIndex={0}
               backgroundColor="transparent"
               stackSize={3}
@@ -335,6 +402,10 @@ export default function SwipeScreen({ navigation }) {
 
           {/* Tap actions for the drag-averse */}
           <View style={styles.actions}>
+            <TouchableOpacity style={styles.smallBtn} onPress={steerFeed} activeOpacity={0.8}>
+              <Ionicons name="options-outline" size={19} color={COLORS.textMuted} />
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.skipBtn}
               onPress={() => swiperRef.current?.swipeLeft()}
@@ -342,6 +413,15 @@ export default function SwipeScreen({ navigation }) {
             >
               <Ionicons name="close" size={28} color={COLORS.textMuted} />
             </TouchableOpacity>
+
+            <TouchableOpacity style={styles.smallBtn} onPress={saveTop} activeOpacity={0.8}>
+              <Ionicons
+                name={savedIds.has(feed[topIndex]?.job?.id) ? "bookmark" : "bookmark-outline"}
+                size={19}
+                color={savedIds.has(feed[topIndex]?.job?.id) ? COLORS.primary : COLORS.textMuted}
+              />
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.applyBtn}
               onPress={() => swiperRef.current?.swipeRight()}
@@ -420,8 +500,14 @@ const styles = StyleSheet.create({
     flexDirection:  "row",
     justifyContent: "center",
     alignItems:     "center",
-    gap:            SPACING.xl,
+    gap:            SPACING.md,
     paddingBottom:  SPACING.md,
+  },
+  smallBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: COLORS.card,
+    borderWidth: 1.5, borderColor: COLORS.border,
+    alignItems: "center", justifyContent: "center",
   },
   skipBtn: {
     width:           56,

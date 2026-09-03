@@ -12,6 +12,8 @@ import { Ionicons }   from "@expo/vector-icons";
 import { AuthContext } from "../../context/AuthContext";
 import { api }        from "../../services/api";
 import { getSocket }  from "../../services/socket";
+import { ErrorBanner } from "../../components/ErrorState";
+import { describeError } from "../../utils/errors";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 export default function ChatScreen({ route, navigation }) {
@@ -122,7 +124,11 @@ export default function ChatScreen({ route, navigation }) {
       socket.emit("send_message", { matchId, content });
     } else {
       // Fallback to REST if socket unavailable
-      api.post(`/messages/${matchId}`, { content }).catch(() => {});
+      api.post(`/messages/${matchId}`, { content })
+        .then(res => {
+          if (!res.ok) setSendError("Message didn't send. Tap to retry.");
+        })
+        .catch(err => setSendError(describeError(err, "Message didn't send.")));
     }
     setSending(false);
   };

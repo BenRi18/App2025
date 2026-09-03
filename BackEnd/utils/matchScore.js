@@ -14,11 +14,12 @@ import { buildRoleProfile } from "../config/listingQuestions.js";
 
 // ─── Weights (tweak freely, must sum to 100) ─────────────────────────────────
 const WEIGHTS = {
-  traits:    40,   // lifestyle/personality fit (questionnaire) — the headline signal
-  jobType:   15,
-  industry:  15,
+  traits:    35,   // lifestyle/personality fit (questionnaire) — the headline signal
+  jobType:   12,
+  industry:  13,
   location:  20,
-  freshness: 10,
+  freshness:  8,
+  learned:   12,   // what the user actually swipes on (revealed preference)
 };
 
 // Industry keyword dictionary. Maps a canonical industry to words commonly
@@ -212,6 +213,56 @@ function freshnessScore(job, business) {
  * Score a single business (with its newest active job listing) for a user.
  * @returns {{ total: number, breakdown: Object }} total is 0–100 (rounded)
  */
+
+/**
+ * Score from what the user actually swipes on, not what they said in the quiz.
+ * Returns 0.5 (neutral) until there's evidence. Confidence ramps with the
+ * number of signals so a handful of swipes can't dominate the ranking.
+ */
+function learnedScore(user, jobListing) {
+  const learned = user?.learned;
+  const signals = learned?.signals ?? 0;
+  if (!learned || signals < 3) return 0.5;
+
+  // Mongoose Map fields arrive as JS Maps unless the caller ran toJSON();
+  // support both so scoring works no matter which path we're called from.
+  const asObj = (v) =>
+    !v ? {} : v instanceof Map ? Object.fromEntries(v)
+    : typeof v.toObject === "function" ? v.toObject() : v;
+  const types = asObj(learned.job_types);
+  const archs = asObj(learned.archetypes);
+  const parts = [];
+
+  const t = types[jobListing?.job_type];
+  if (typeof t === "number") parts.push(t);
+  const a = archs[jobListing?.archetype ?? inferArchetype(jobListing)];
+  if (typeof a === "number") parts.push(a);
+
+  if (parts.length === 0) return 0.5;
+  const raw = parts.reduce((s, v) => s + v, 0) / parts.length;
+
+  // Confidence: 0 at 3 signals, full at ~25
+  const confidence = Math.min(1, (signals - 3) / 22);
+  return 0.5 + (raw - 0.5) * confidence;
+}
+
+
+/**
+ * Turn a score breakdown into up to three short phrases the user recognises
+ * as being about them. Only genuinely strong components qualify — a reason
+ * that appears on every card tells the user nothing.
+ */
+export function matchReasons(parts, breakdown) {
+  const out = [];
+  if (parts.traits    >= 0.75) out.push({ icon: "sparkles",         text: "Fits your personality" });
+  if (parts.location  >= 0.8)  out.push({ icon: "location",         text: breakdown.distance_km != null && breakdown.distance_km < 1 ? "Right nearby" : "Close to you" });
+  if (parts.jobType   >= 0.9)  out.push({ icon: "time",             text: "Your kind of hours" });
+  if (parts.industry  >= 0.85) out.push({ icon: "briefcase",        text: "Your industry" });
+  if (parts.learned   >= 0.7)  out.push({ icon: "trending-up",      text: "Like jobs you've liked" });
+  if (parts.freshness >= 0.9)  out.push({ icon: "flash",            text: "Just posted" });
+  return out.slice(0, 3);
+}
+
 export function scoreBusinessForUser(user, business, jobListing, liveCoords) {
   const parts = {
     traits:    (() => {
@@ -224,6 +275,7 @@ export function scoreBusinessForUser(user, business, jobListing, liveCoords) {
     jobType:   jobTypeScore(user, jobListing),
     industry:  industryScore(user, business, jobListing),
     freshness: freshnessScore(jobListing, business),
+    learned:   learnedScore(user, jobListing),
   };
   const loc = locationScore(user, business, jobListing, liveCoords);
   parts.location = loc.score;
@@ -237,7 +289,7 @@ export function scoreBusinessForUser(user, business, jobListing, liveCoords) {
   }
   breakdown.distance_km = loc.km;   // null when no coordinates are known
 
-  return { total: Math.round(total), breakdown };
+  return { total: Math.round(total), breakdown, reasons: matchReasons(parts, breakdown) };
 }
 
 /**
@@ -261,8 +313,8 @@ export function rankBusinessesForUser(user, businesses, liveCoords) {
 
   return businesses
     .map((b) => {
-      const { total, breakdown } = scoreBusinessForUser(user, b, b.job_listing, liveCoords);
-      return { ...b, match_score: total, match_breakdown: breakdown };
+      const { total, breakdown, reasons } = scoreBusinessForUser(user, b, b.job_listing, liveCoords);
+      return { ...b, match_score: total, match_breakdown: breakdown, match_reasons: reasons };
     })
     .sort((a, b) =>
       b.match_score !== a.match_score

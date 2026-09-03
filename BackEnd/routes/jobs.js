@@ -10,6 +10,8 @@ import authMiddleware from "../middleware/auth.js";
 import { rankBusinessesForUser, findTown } from "../utils/matchScore.js";
 import { notifyCompatibleUsers } from "../utils/notifyCompatible.js";
 import { LISTING_QUESTIONS } from "../config/listingQuestions.js";
+import SavedJob from "../models/SavedJob.js";
+import { learnFromSwipe } from "../utils/learnPreferences.js";
 
 const router = express.Router();
 
@@ -70,7 +72,7 @@ router.post("/", authMiddleware, jobValidators, async (req, res, next) => {
     }
     if (!validate(req, res)) return;
 
-    const { job_title, job_type, salary_range, archetype, location, role_answers } = req.body;
+    const { job_title, job_type, salary_range, archetype, location, role_answers, backdrop } = req.body;
     const description = req.body.description ?? req.body.job_description;
 
     const business = await Business.findById(req.user.id)
@@ -102,6 +104,7 @@ router.post("/", authMiddleware, jobValidators, async (req, res, next) => {
       archetype:    archetype    ?? undefined,
       location:     loc          ?? undefined,
       role_answers: Array.isArray(role_answers) && role_answers.length ? role_answers : undefined,
+      backdrop:     typeof backdrop === "string" ? backdrop.slice(0, 40) : undefined,
     });
 
     // Ping compatible nearby users — fire and forget, never blocks the response
@@ -134,6 +137,101 @@ router.get("/", authMiddleware, async (req, res, next) => {
   }
 });
 
+
+// ─── Saved jobs (shortlist) ───────────────────────────────────────────────────
+// GET /jobs/saved — the user's shortlist
+router.get("/saved", authMiddleware, async (req, res, next) => {
+  try {
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users can save jobs" });
+    }
+    const saved = await SavedJob.find({ user_id: req.user.id })
+      .populate({
+        path: "job_id",
+        select: "job_title job_type salary_range description archetype backdrop location business_id is_active",
+        populate: { path: "business_id", select: "business_name city avatar_path" },
+      })
+      .sort({ createdAt: -1 });
+
+    res.json(
+      saved
+        .filter(s => s.job_id)
+        .map(s => ({
+          id:       s.id,
+          saved_at: s.createdAt,
+          job:      s.job_id,
+          business: s.job_id.business_id,
+        }))
+    );
+  } catch (err) { next(err); }
+});
+
+// POST /jobs/:id/save — shortlist a job (a strong positive preference signal)
+router.post("/:id/save", authMiddleware, async (req, res, next) => {
+  try {
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users can save jobs" });
+    }
+    const job = await JobListing.findById(req.params.id);
+    if (!job) return res.status(404).json({ error: "Job listing not found" });
+
+    await SavedJob.updateOne(
+      { user_id: req.user.id, job_id: job._id },
+      { $setOnInsert: { user_id: req.user.id, job_id: job._id } },
+      { upsert: true }
+    );
+    // Saving is a firmer signal than a swipe, so it counts double
+    learnFromSwipe(req.user.id, job, "right", 2).catch(() => {});
+    res.json({ saved: true });
+  } catch (err) { next(err); }
+});
+
+// DELETE /jobs/:id/save — remove from the shortlist
+router.delete("/:id/save", authMiddleware, async (req, res, next) => {
+  try {
+    await SavedJob.deleteOne({ user_id: req.user.id, job_id: req.params.id });
+    res.json({ saved: false });
+  } catch (err) { next(err); }
+});
+
+// ─── Feed controls ────────────────────────────────────────────────────────────
+// POST /jobs/feed/hide-business — never show this business again
+router.post("/feed/hide-business", authMiddleware, async (req, res, next) => {
+  try {
+    const { businessId } = req.body;
+    if (!businessId) return res.status(400).json({ error: "businessId is required" });
+    await User.updateOne(
+      { _id: req.user.id },
+      { $addToSet: { hidden_businesses: businessId } }
+    );
+    res.json({ hidden: true });
+  } catch (err) { next(err); }
+});
+
+// POST /jobs/feed/mute-archetype — "show me less of this kind of work"
+router.post("/feed/mute-archetype", authMiddleware, async (req, res, next) => {
+  try {
+    const { archetype } = req.body;
+    if (!archetype) return res.status(400).json({ error: "archetype is required" });
+    await User.updateOne(
+      { _id: req.user.id },
+      { $addToSet: { muted_archetypes: String(archetype).slice(0, 40) } }
+    );
+    res.json({ muted: true });
+  } catch (err) { next(err); }
+});
+
+// POST /jobs/feed/reset — clear all feed controls and learned preferences
+router.post("/feed/reset", authMiddleware, async (req, res, next) => {
+  try {
+    await User.updateOne(
+      { _id: req.user.id },
+      { $unset: { hidden_businesses: 1, muted_archetypes: 1, learned: 1 } }
+    );
+    res.json({ reset: true });
+  } catch (err) { next(err); }
+});
+
 // ─── GET /jobs/feed ────────────────────────────────────────────────────────────
 // The swipe deck: one card per active job listing, ranked for the logged-in
 // user, excluding jobs already swiped on. Legacy business-level swipes
@@ -148,7 +246,7 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
     // 1 — Full user profile (needed for preference-based scoring)
     const user = await User
       .findById(req.user.id)
-      .select("work_type industry_preference location travel_distance traits");
+      .select("work_type industry_preference location travel_distance traits learned hidden_businesses muted_archetypes");
 
     // Live device position from the app (optional). Powers precise proximity
     // and is remembered (fire-and-forget) for compatibility notifications.
@@ -179,11 +277,19 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
     // what makes the feed work worldwide: a traveler in Lisbon queries Lisbon
     // jobs, never the planet.
     const FEED_RADIUS_KM = { "5km": 15, "10km": 25, "25km": 50, "any": 100 };
+    // Respect the user's own feed controls
+    const blockedBiz = [
+      ...fullySwipedBizIds,
+      ...(user?.hidden_businesses ?? []).map(String),
+    ];
     const baseFilter = {
       is_active: true,
       _id:         { $nin: [...swipedJobIds] },
-      business_id: { $nin: [...fullySwipedBizIds] },
+      business_id: { $nin: blockedBiz },
     };
+    if (user?.muted_archetypes?.length) {
+      baseFilter.archetype = { $nin: user.muted_archetypes };
+    }
 
     let jobs;
     if (liveCoords) {
@@ -233,8 +339,9 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
         industry:      e.industry,
         avatar_path:   e.avatar_path,
       },
-      match_score: e.match_score,
-      distance_km: e.match_breakdown?.distance_km ?? null,
+      match_score:   e.match_score,
+      distance_km:   e.match_breakdown?.distance_km ?? null,
+      match_reasons: e.match_reasons ?? [],
     }));
 
     res.json(feed);
@@ -269,7 +376,7 @@ router.put("/:id", authMiddleware, jobValidators, async (req, res, next) => {
       return res.status(403).json({ error: "You can only edit your own listings" });
     }
 
-    const { job_title, job_type, salary_range, archetype, location, role_answers } = req.body;
+    const { job_title, job_type, salary_range, archetype, location, role_answers, backdrop } = req.body;
     const description = req.body.description ?? req.body.job_description;
     const patch = {
       job_title,
@@ -286,6 +393,7 @@ router.put("/:id", authMiddleware, jobValidators, async (req, res, next) => {
     if (Array.isArray(role_answers)) {
       patch.role_answers = role_answers.length ? role_answers : undefined;
     }
+    if (typeof backdrop === "string") patch.backdrop = backdrop.slice(0, 40);
 
     const updated = await JobListing.findByIdAndUpdate(
       req.params.id,

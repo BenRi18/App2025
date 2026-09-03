@@ -4,12 +4,14 @@
 import React, { useState, useCallback } from "react";
 import {
   View, FlatList, Text, StyleSheet, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Alert,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../services/api";
 import { timeAgo, getInitials } from "../../utils/format";
+import ErrorState from "../../components/ErrorState";
+import { describeError } from "../../utils/errors";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 const STATUS = {
@@ -20,17 +22,27 @@ const STATUS = {
 
 export default function ApplicationsScreen({ navigation }) {
   const [apps, setApps]             = useState([]);
+  const [saved, setSaved]           = useState([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError]           = useState(null);
 
   const fetchApps = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
+    setError(null);
     try {
-      const res  = await api.get("/swipes/applications");
+      const [res, savedRes] = await Promise.all([
+        api.get("/swipes/applications"),
+        api.get("/jobs/saved"),
+      ]);
       const data = await res.json();
       setApps(Array.isArray(data) ? data : []);
+      try {
+        const s = await savedRes.json();
+        setSaved(Array.isArray(s) ? s : []);
+      } catch { setSaved([]); }
     } catch (err) {
-      console.warn("ApplicationsScreen fetch error:", err);
+      setError(describeError(err, "Couldn't load this right now."));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -96,14 +108,59 @@ export default function ApplicationsScreen({ navigation }) {
         <RefreshControl refreshing={refreshing} onRefresh={() => fetchApps(true)} tintColor={COLORS.primary} />
       }
       ListHeaderComponent={
-        apps.length > 0 ? (
+        <>
+        {saved.length > 0 ? (
+          <View style={styles.savedBlock}>
+            <Text style={styles.savedTitle}>
+              <Ionicons name="bookmark" size={13} color={COLORS.primary} /> Saved for later
+            </Text>
+            {saved.slice(0, 4).map(s => (
+              <View key={s.id} style={styles.savedRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.savedJob} numberOfLines={1}>{s.job?.job_title}</Text>
+                  <Text style={styles.savedBiz} numberOfLines={1}>
+                    {s.business?.business_name}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={async () => {
+                    // Optimistically remove, restore if the server refuses —
+                    // silently failing here leaves a ghost item on next load.
+                    const before = saved;
+                    setSaved(prev => prev.filter(x => x.id !== s.id));
+                    try {
+                      const res = await api.delete(`/jobs/${s.job?.id ?? s.job?._id}/save`);
+                      if (!res.ok) throw new Error("remove failed");
+                    } catch (err) {
+                      setSaved(before);
+                      Alert.alert("Couldn't remove", describeError(err, "Try again in a moment."));
+                    }
+                  }}
+                >
+                  <Ionicons name="close" size={17} color={COLORS.textMuted} />
+                </TouchableOpacity>
+              </View>
+            ))}
+            {saved.length > 4 ? (
+              <Text style={styles.savedMore}>+{saved.length - 4} more saved</Text>
+            ) : null}
+          </View>
+        ) : null}
+        {apps.length > 0 ? (
           <Text style={styles.listHeader}>
             {apps.length} application{apps.length !== 1 ? "s" : ""}
             {reviewing > 0 ? ` · ${reviewing} in review` : ""}
           </Text>
-        ) : null
+        ) : null}
+        </>
       }
       ListEmptyComponent={
+
+        error ? (
+
+          <ErrorState message={error} onRetry={() => fetchApps(true)} />
+
+        ) :
         <View style={styles.empty}>
           <View style={styles.emptyIcon}>
             <Ionicons name="paper-plane-outline" size={38} color={COLORS.primary} />
@@ -126,6 +183,21 @@ const styles = StyleSheet.create({
   list:   { flexGrow: 1, padding: SPACING.md, backgroundColor: COLORS.background },
 
   listHeader: { fontSize: 13, fontWeight: "700", color: COLORS.textSecondary, marginBottom: SPACING.sm },
+
+  savedBlock: {
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  savedTitle: { fontSize: 12.5, fontWeight: "800", color: COLORS.primaryDark, marginBottom: SPACING.sm },
+  savedRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingVertical: 7,
+  },
+  savedJob:  { fontSize: 13.5, fontWeight: "700", color: COLORS.textPrimary },
+  savedBiz:  { fontSize: 12, color: COLORS.textSecondary, marginTop: 1 },
+  savedMore: { fontSize: 11.5, color: COLORS.textSecondary, marginTop: 4, fontWeight: "600" },
 
   card: {
     backgroundColor: COLORS.card,

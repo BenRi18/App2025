@@ -1,6 +1,6 @@
 // FrontEnd/screens/shared/ChangePasswordScreen.js
 // Authenticated password change: PUT /auth/password
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   ActivityIndicator, SafeAreaView, KeyboardAvoidingView,
@@ -11,6 +11,10 @@ import { api } from "../../services/api";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 export default function ChangePasswordScreen({ navigation }) {
+  // Cancel the scheduled navigation if the screen unmounts first
+  const navTimer = useRef(null);
+  useEffect(() => () => clearTimeout(navTimer.current), []);
+
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword,     setNewPassword]     = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -57,7 +61,7 @@ export default function ChangePasswordScreen({ navigation }) {
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
-        setTimeout(() => navigation.goBack(), 1200);
+        navTimer.current = setTimeout(() => navigation.goBack(), 1200);
       } else {
         setMessage(data.error ?? "Failed to change password.");
       }

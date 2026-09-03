@@ -44,6 +44,21 @@ app.use(makeRateLimiter(300, 60 * 1000));
 // Behind a hosting proxy (Railway/Render/Fly) — needed for correct client IPs
 app.set("trust proxy", 1);
 
+// ─── Process-level safety net ─────────────────────────────────────────────────
+// Without these, one unhandled promise rejection anywhere (a failed push, a
+// dropped S3 call) takes the whole backend down and every user loses service.
+// Log loudly, keep serving.
+process.on("unhandledRejection", (reason) => {
+  console.error("⚠️  Unhandled promise rejection:", reason?.message ?? reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("⚠️  Uncaught exception:", err?.message ?? err);
+  console.error(err?.stack);
+  // An uncaught exception leaves state unknown — exit so the host restarts us
+  // cleanly rather than serving from a corrupted process.
+  process.exit(1);
+});
+
 // CORS: mobile apps send no Origin header, so a permissive default is fine;
 // set ALLOWED_ORIGINS (comma-separated) to restrict web callers in production.
 const allowed = process.env.ALLOWED_ORIGINS?.split(",").map(s => s.trim());
@@ -69,6 +84,13 @@ app.use("/questionnaire", questionnaireRouter);
 app.use("/messages",   messagesRouter);
 
 // ─── Global error handler — must be last ──────────────────────────────────────
+// ─── Unknown routes ───────────────────────────────────────────────────────────
+// Without this, a typo'd endpoint returns Express's HTML error page, which the
+// app tries to parse as JSON and reports as a confusing parse failure.
+app.use((req, res) => {
+  res.status(404).json({ error: `No route for ${req.method} ${req.originalUrl}` });
+});
+
 app.use(errorHandler);
 
 // ─── Start — MongoDB first, then HTTP + WebSocket ─────────────────────────────

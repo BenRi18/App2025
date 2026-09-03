@@ -4,6 +4,7 @@ import express from "express";
 import Swipe    from "../models/Swipe.js";
 import JobListing       from "../models/JobListing.js";
 import BusinessDecision from "../models/BusinessDecision.js";
+import { learnFromSwipe } from "../utils/learnPreferences.js";
 import CV       from "../models/CV.js";
 import Match    from "../models/Match.js";
 import User     from "../models/User.js";
@@ -120,6 +121,13 @@ router.post("/right", authMiddleware, uploadCV.single("cv"), async (req, res, ne
       status:      "applied",
     });
 
+    // Applying is the strongest positive signal there is
+    if (jobId) {
+      JobListing.findById(jobId)
+        .then(job => learnFromSwipe(req.user.id, job, "right", 2))
+        .catch(() => {});
+    }
+
     await CV.create({
       user_id:     req.user.id,
       business_id: businessId,
@@ -136,6 +144,49 @@ router.post("/right", authMiddleware, uploadCV.single("cv"), async (req, res, ne
   } catch (err) {
     next(err);
   }
+});
+
+// ─── GET /swipes/stats ────────────────────────────────────────────────────────
+// The user's own numbers — applications, outcomes, and where they're aiming.
+router.get("/stats", authMiddleware, async (req, res, next) => {
+  try {
+    if (req.user.role !== "user") {
+      return res.status(403).json({ error: "Only users have stats" });
+    }
+
+    const [applications, matches, decisions, user] = await Promise.all([
+      Swipe.find({ user_id: req.user.id, direction: "right" })
+        .populate("job_id", "job_title archetype job_type")
+        .select("job_id createdAt"),
+      Match.countDocuments({ user_id: req.user.id }),
+      BusinessDecision.countDocuments({ user_id: req.user.id, decision: "pass" }),
+      User.findById(req.user.id).select("traits learned"),
+    ]);
+
+    // Most-applied-to kind of work
+    const archCounts = {};
+    for (const s of applications) {
+      const a = s.job_id?.archetype;
+      if (a) archCounts[a] = (archCounts[a] ?? 0) + 1;
+    }
+    const topArchetype = Object.entries(archCounts)
+      .sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+    // First application date, for a "since" line
+    const firstAt = applications.length
+      ? applications.reduce((min, s) => (s.createdAt < min ? s.createdAt : min), applications[0].createdAt)
+      : null;
+
+    res.json({
+      applications: applications.length,
+      matches,
+      rejected:     decisions,
+      in_review:    Math.max(0, applications.length - matches - decisions),
+      top_archetype: topArchetype,
+      swipe_signals: user?.learned?.signals ?? 0,
+      since:        firstAt,
+    });
+  } catch (err) { next(err); }
 });
 
 // ─── GET /swipes/applications ─────────────────────────────────────────────────

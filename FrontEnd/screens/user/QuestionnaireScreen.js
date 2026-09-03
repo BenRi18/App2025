@@ -26,6 +26,10 @@ const TRAIT_LABELS = {
 };
 
 export default function QuestionnaireScreen({ navigation }) {
+  // Cancel the queued advance if the screen unmounts mid-animation
+  const advanceTimer = useRef(null);
+  useEffect(() => () => clearTimeout(advanceTimer.current), []);
+
   const { token } = useContext(AuthContext);
 
   const [questions, setQuestions] = useState([]);
@@ -78,7 +82,7 @@ export default function QuestionnaireScreen({ navigation }) {
     setAnswers(nextAnswers);
     setSelected(optionId);
 
-    setTimeout(() => {
+    advanceTimer.current = setTimeout(() => {
       if (index + 1 < questions.length) {
         animateToNext(index + 1);
       } else {

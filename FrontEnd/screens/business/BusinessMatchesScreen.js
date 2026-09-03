@@ -10,21 +10,25 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../services/api";
 import { timeAgo, getInitials, avatarUrl } from "../../utils/format";
+import ErrorState from "../../components/ErrorState";
+import { describeError } from "../../utils/errors";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 export default function BusinessMatchesScreen({ navigation }) {
   const [matches,    setMatches]    = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError]           = useState(null);
 
   const fetchMatches = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
+    setError(null);
     try {
       const res  = await api.get("/matches");
       const data = await res.json();
       setMatches(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.warn("BusinessMatchesScreen fetch error:", err);
+      setError(describeError(err, "Couldn't load this right now."));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -93,6 +97,12 @@ export default function BusinessMatchesScreen({ navigation }) {
         />
       }
       ListEmptyComponent={
+
+        error ? (
+
+          <ErrorState message={error} onRetry={() => fetchMatches(true)} />
+
+        ) :
         <View style={styles.empty}>
           <Ionicons name="people-outline" size={64} color={COLORS.textMuted} />
           <Text style={styles.emptyTitle}>No Matches Yet</Text>

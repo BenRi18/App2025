@@ -40,6 +40,31 @@ const userSchema = new mongoose.Schema(
     },
     cv_path: { type: String },
 
+    // Last known device position (updated when the feed is fetched) — powers
+    // proximity notifications worldwide.
+    last_location: {
+      lat: { type: Number, min: -90,  max: 90 },
+      lng: { type: Number, min: -180, max: 180 },
+      at:  { type: Date },
+    },
+
+    // ── Learned preferences ───────────────────────────────────────────────────
+    // Built from actual swipes (revealed preference), not the quiz. Each map
+    // holds a score per key: >0.5 means "swipes right on these", <0.5 means
+    // "swipes left". `signals` counts total swipes so the ranker can weight
+    // this lightly at first and more heavily once there is real evidence.
+    learned: {
+      job_types:  { type: Map, of: Number, default: undefined },
+      archetypes: { type: Map, of: Number, default: undefined },
+      signals:    { type: Number, default: 0 },
+    },
+
+    // Businesses the user chose to hide — never shown in the feed again
+    hidden_businesses: { type: [mongoose.Schema.Types.ObjectId], ref: "Business", default: undefined },
+
+    // Archetypes the user asked to see less of ("not this kind of work")
+    muted_archetypes: { type: [String], default: undefined },
+
     // ── Lifestyle questionnaire (trait-based matching) ────────────────────────
     questionnaire_answers: { type: Object },   // { free_time: "a", sports: "c", ... }
     traits:                { type: Object },   // computed vector { energy: 0.8, ... }

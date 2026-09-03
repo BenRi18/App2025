@@ -24,13 +24,22 @@ export async function notifyCompatibleUsers(job, business) {
           ? [business.location.lat, business.location.lng]
           : findTown((business?.city ?? "").toLowerCase()));   // legacy seed data
 
-    const users = await User
-      .find({ traits: { $exists: true }, expoPushToken: { $exists: true, $ne: null } })
-      .select("traits expoPushToken travel_distance last_location");
+    // Stream instead of loading every matching user into memory — at worldwide
+    // scale a plain .find() here would grow without bound. The freshness filter
+    // runs in the database so it narrows before we ever touch the documents.
+    const cursor = User
+      .find({
+        traits:        { $exists: true },
+        expoPushToken: { $exists: true, $ne: null },
+        "last_location.at": { $gte: new Date(Date.now() - LIVE_FRESH_MS) },
+      })
+      .select("traits expoPushToken travel_distance last_location")
+      .lean()
+      .cursor();
 
     let sent = 0;
-    for (const u of users) {
-      if (sent >= MAX_NOTIFY) break;
+    for (let u = await cursor.next(); u; u = await cursor.next()) {
+      if (sent >= MAX_NOTIFY) { await cursor.close(); break; }
 
       const fit = traitCompatibility(u.traits, roleTarget, importance);
       if (fit < FIT_THRESHOLD) continue;

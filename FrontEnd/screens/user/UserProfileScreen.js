@@ -12,6 +12,7 @@ import { AuthContext } from "../../context/AuthContext";
 import { api, API_URL } from "../../services/api";
 import { getInitials, avatarUrl } from "../../utils/format";
 import DeleteAccountModal from "../../components/DeleteAccountModal";
+import TraitBloom, { traitArchetype } from "../../components/TraitBloom";
 import { COLORS, SPACING, RADIUS, SHADOWS } from "../../theme";
 
 export default function UserProfileScreen({ navigation }) {
@@ -65,6 +66,11 @@ export default function UserProfileScreen({ navigation }) {
   const removeCV = async () => {
     try {
       const res = await api.delete("/auth/me/cv");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        Alert.alert("Couldn't remove CV", data.error ?? "Try again in a moment.");
+        return;
+      }
       if (res.ok) {
         setUser({ ...user, cv_path: null });
         Alert.alert("CV removed", "Add a new CV before your next application.");
@@ -87,6 +93,14 @@ export default function UserProfileScreen({ navigation }) {
   };
 
   const [showDelete, setShowDelete] = React.useState(false);
+  const [stats, setStats] = React.useState(null);
+
+  React.useEffect(() => {
+    api.get("/swipes/stats")
+      .then(res => (res.ok ? res.json() : null))
+      .then(s => setStats(s))
+      .catch(() => setStats(null));   // stats are optional — the page still works
+  }, []);
 
   const handleLogout = () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
@@ -145,9 +159,35 @@ export default function UserProfileScreen({ navigation }) {
       </TouchableOpacity>
 
       <Text style={styles.displayName}>{displayName ?? "—"}</Text>
-      <View style={styles.rolePill}>
-        <Text style={styles.roleText}>Job Seeker</Text>
-      </View>
+      {(() => {
+        const arch = traitArchetype(user?.traits);
+        return arch ? (
+          <>
+            <Text style={styles.archetypeName}>{arch.name}</Text>
+            <Text style={styles.archetypeBlurb}>{arch.blurb}</Text>
+          </>
+        ) : (
+          <View style={styles.rolePill}>
+            <Text style={styles.roleText}>Job Seeker</Text>
+          </View>
+        );
+      })()}
+
+      {/* Your numbers */}
+      {stats ? (
+        <View style={styles.statsRow}>
+          {[
+            { n: stats.applications, l: "applied" },
+            { n: stats.in_review,    l: "in review" },
+            { n: stats.matches,      l: "matched" },
+          ].map(s => (
+            <View key={s.l} style={styles.statBox}>
+              <Text style={styles.statNum}>{s.n}</Text>
+              <Text style={styles.statLabel}>{s.l}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {/* Info card */}
       <View style={styles.card}>
@@ -172,7 +212,11 @@ export default function UserProfileScreen({ navigation }) {
           <Text style={styles.traitTitle}>Your Personality Profile</Text>
         </View>
         {user?.traits && Object.keys(user.traits).length > 0 ? (
-          Object.entries({
+          <>
+          <View style={styles.bloomWrap}>
+            <TraitBloom traits={user.traits} size={132} />
+          </View>
+          {Object.entries({
             energy:         "Energy",
             social:         "People person",
             teamwork:       "Team player",
@@ -188,7 +232,8 @@ export default function UserProfileScreen({ navigation }) {
                 <View style={[styles.traitFill, { width: `${Math.round((user.traits[key] ?? 0.5) * 100)}%` }]} />
               </View>
             </View>
-          ))
+          ))}
+          </>
         ) : (
           <TouchableOpacity
             style={styles.traitCta}
@@ -359,6 +404,19 @@ const styles = StyleSheet.create({
     overflow:        "hidden",
     ...SHADOWS.sm,
   },
+  archetypeName:  { fontSize: 17, fontWeight: "800", color: COLORS.primary, marginTop: 2 },
+  archetypeBlurb: { fontSize: 13, color: COLORS.textSecondary, marginTop: 2, marginBottom: SPACING.md, textAlign: "center" },
+
+  statsRow: { flexDirection: "row", gap: SPACING.sm, width: "100%", marginBottom: SPACING.lg },
+  statBox: {
+    flex: 1, backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    paddingVertical: SPACING.md, alignItems: "center", ...SHADOWS.sm,
+  },
+  statNum:   { fontSize: 22, fontWeight: "900", color: COLORS.textPrimary, letterSpacing: -0.5 },
+  statLabel: { fontSize: 11.5, color: COLORS.textSecondary, marginTop: 2, fontWeight: "600" },
+
+  bloomWrap: { alignItems: "center", paddingVertical: SPACING.md },
+
   traitHeader: {
     flexDirection: "row", alignItems: "center", gap: 8,
     paddingVertical: 13, paddingHorizontal: SPACING.md,

@@ -132,6 +132,12 @@ export function setupSocket(io) {
       }
     });
 
+    // Transport-level socket errors — log rather than let them bubble into an
+    // unhandled exception that would take the process down.
+    socket.on("error", (err) => {
+      console.warn("🔌 Socket error for", id, "-", err?.message ?? err);
+    });
+
     socket.on("disconnect", () => {
       console.log(`🔌 Socket disconnected: ${id}`);
     });

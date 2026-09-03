@@ -1,6 +1,6 @@
 // FrontEnd/screens/shared/EditProfileScreen.js
 // Edit profile for both user and business roles. PUT /auth/me + optional avatar upload.
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   ActivityIndicator, SafeAreaView, KeyboardAvoidingView,
@@ -31,6 +31,10 @@ const BUSINESS_FIELDS = [
 ];
 
 export default function EditProfileScreen({ navigation }) {
+  // Cancel the scheduled navigation if the screen unmounts first
+  const navTimer = useRef(null);
+  useEffect(() => () => clearTimeout(navTimer.current), []);
+
   const { role, user, setUser } = useContext(AuthContext);
   const fields = role === "user" ? USER_FIELDS : BUSINESS_FIELDS;
 
@@ -96,7 +100,7 @@ export default function EditProfileScreen({ navigation }) {
       if (meRes.ok) setUser(meData);
 
       setSuccess(true);
-      setTimeout(() => navigation.goBack(), 1000);
+      navTimer.current = setTimeout(() => navigation.goBack(), 1000);
     } catch (err) {
       setMessage(err.message || "Something went wrong.");
     } finally {

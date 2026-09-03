@@ -29,8 +29,46 @@ function errorHandler(err, req, res, _next) {
     return res.status(403).json({ error: "Invalid or expired token" });
   }
 
+  // ── Unexpected upload field / wrong form key ──────────────────────────────
+  if (err.code === "LIMIT_UNEXPECTED_FILE") {
+    return res.status(400).json({ error: "Unexpected file upload" });
+  }
+
+  // ── Malformed JSON body ───────────────────────────────────────────────────
+  if (err.type === "entity.parse.failed" || (err instanceof SyntaxError && "body" in err)) {
+    return res.status(400).json({ error: "Malformed request body" });
+  }
+
+  // ── Body larger than the parser allows ────────────────────────────────────
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request body too large" });
+  }
+
+  // ── Database unreachable — distinguish from a bug in our code ─────────────
+  if (err.name === "MongoNetworkError" ||
+      err.name === "MongooseServerSelectionError" ||
+      err.name === "MongoTimeoutError") {
+    console.error("🔴 Database unreachable:", err.message);
+    return res.status(503).json({
+      error: "Service temporarily unavailable. Please try again shortly.",
+    });
+  }
+
+  // ── File storage (S3 / R2) failures ───────────────────────────────────────
+  if (err.$metadata || ["NoSuchBucket", "AccessDenied", "InvalidAccessKeyId",
+                        "SignatureDoesNotMatch", "NetworkingError"].includes(err.name)) {
+    console.error("🔴 Storage error:", err.name, "-", err.message);
+    return res.status(502).json({
+      error: "File storage is unavailable right now. Please try again shortly.",
+    });
+  }
+
   // ── Catch-all ─────────────────────────────────────────────────────────────
-  console.error("Unhandled error:", err.message || err);
+  // Log the stack (not just the message) — without it, production 500s are
+  // undebuggable. The client still gets a generic message: internal details
+  // are useful to us and useful to an attacker.
+  console.error("🔴 Unhandled error on", req.method, req.originalUrl);
+  console.error(err.stack || err.message || err);
   res.status(500).json({ error: "Something went wrong" });
 }
 

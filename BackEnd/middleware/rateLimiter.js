@@ -12,12 +12,14 @@
 const store = new Map(); // ip → { count, resetAt }
 
 // Prune expired entries every 10 minutes to prevent unbounded memory growth
-setInterval(() => {
+const _storeSweep = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of store) {
     if (now > entry.resetAt) store.delete(key);
   }
 }, 10 * 60 * 1000);
+// unref so this housekeeping timer never keeps the process alive on shutdown
+_storeSweep.unref?.();
 
 /**
  * @param {number} maxRequests  Maximum allowed requests within the window
@@ -70,7 +72,7 @@ export function makeRateLimiter(maxRequests, windowMs) {
 // ─────────────────────────────────────────────────────────────────────────────
 const accountStore = new Map(); // identity → { count, resetAt, lockedUntil }
 
-setInterval(() => {
+const _accountSweep = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of accountStore) {
     if (now > entry.resetAt && (!entry.lockedUntil || now > entry.lockedUntil)) {
@@ -78,6 +80,7 @@ setInterval(() => {
     }
   }
 }, 10 * 60 * 1000);
+_accountSweep.unref?.();
 
 /**
  * Limit failed attempts against a single account identity.
