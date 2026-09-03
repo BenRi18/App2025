@@ -260,12 +260,23 @@ router.post(
           emailVerificationExpires: verifyExpiry,
         });
         docId = biz._id.toString();
+
+        // The optional first job listing must never fail registration: the
+        // account already exists by now, so throwing here would leave the user
+        // unable to register again (duplicate email) AND unable to proceed.
         if (job_title) {
-          await JobListing.create({
-            business_id: biz._id, job_title,
-            job_type: job_type ?? undefined, salary_range: salary_range ?? undefined,
-            description: job_description ?? undefined,
-          });
+          try {
+            await JobListing.create({
+              business_id: biz._id, job_title,
+              job_type: job_type ?? undefined, salary_range: salary_range ?? undefined,
+              description: job_description ?? undefined,
+            });
+          } catch (listingErr) {
+            console.error(
+              "⚠️  First job listing failed for business", docId, "-", listingErr.message,
+              "(account was still created; they can post the job from the app)"
+            );
+          }
         }
       }
 
@@ -619,7 +630,7 @@ router.put(
         for (const key of ALLOWED) {
           if (req.body[key] !== undefined) updates[key] = req.body[key] || undefined;
         }
-        const user = await User.findByIdAndUpdate(id, updates, { new: true, runValidators: true }).select("-password");
+        const user = await User.findByIdAndUpdate(id, updates, { returnDocument: "after", runValidators: true }).select("-password");
         if (!user) return res.status(404).json({ error: "Account not found" });
         return res.json({ ...user.toJSON(), role });
       } else {
@@ -628,7 +639,7 @@ router.put(
         for (const key of ALLOWED) {
           if (req.body[key] !== undefined) updates[key] = req.body[key] || undefined;
         }
-        const biz = await Business.findByIdAndUpdate(id, updates, { new: true, runValidators: true }).select("-password");
+        const biz = await Business.findByIdAndUpdate(id, updates, { returnDocument: "after", runValidators: true }).select("-password");
         if (!biz) return res.status(404).json({ error: "Account not found" });
         return res.json({ ...biz.toJSON(), role });
       }

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const l=require\\('./package-lock.json'\\); console.log\\('lock expo:', \\(l.packages&&l.packages['node_modules/expo']||{}\\).version\\); console.log\\('lockfileVersion:', l.lockfileVersion\\)\")",
+      "Bash(node -e \"const l=require\\('./package-lock.json'\\); ['expo','expo-notifications','expo-image-picker','react-native'].forEach\\(p=>console.log\\(p, l.packages['node_modules/'+p].version\\)\\)\")",
+      "Bash(npm -v)"
+    ]
+  }
+}

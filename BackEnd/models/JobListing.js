@@ -47,9 +47,13 @@ const jobListingSchema = new mongoose.Schema(
 
     // GeoJSON mirror of `location` — powers worldwide $near proximity queries.
     // Maintained automatically; never set directly.
+    // NOTE: `default: undefined` on both paths is load-bearing. Mongoose
+    // defaults array paths to [], which would give every listing without a
+    // location `geo: { coordinates: [] }` — and a 2dsphere index rejects that
+    // ("Can't extract geo keys"), failing the insert entirely.
     geo: {
-      type:        { type: String, enum: ["Point"] },
-      coordinates: { type: [Number] },   // [lng, lat] — GeoJSON order!
+      type:        { type: String, enum: ["Point"], default: undefined },
+      coordinates: { type: [Number], default: undefined },   // [lng, lat] — GeoJSON order!
     },
 
     is_active: { type: Boolean, default: true },
@@ -70,12 +74,17 @@ jobListingSchema.set("toJSON", {
   },
 });
 
-jobListingSchema.index({ geo: "2dsphere" });
+// Sparse: listings without coordinates are omitted from the index rather than
+// rejected, so a business can post before pinning a location.
+jobListingSchema.index({ geo: "2dsphere" }, { sparse: true });
 
 // Keep the GeoJSON mirror in sync on document saves
 jobListingSchema.pre("save", function (next) {
   if (this.location?.lat != null && this.location?.lng != null) {
     this.geo = { type: "Point", coordinates: [this.location.lng, this.location.lat] };
+  } else if (!this.geo?.coordinates?.length) {
+    // Never persist a half-formed geo object — it breaks the 2dsphere index
+    this.geo = undefined;
   }
   next();
 });
